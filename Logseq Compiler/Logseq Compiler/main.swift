@@ -84,7 +84,7 @@ struct Block: Identifiable, Equatable {
         
         return referredBlocks.reduce(content) { content, referredBlock in
             print(content)
-            return content.replacingOccurrences(of: "((\(referredBlock.id)))", with: "\(referredBlock.content) <- this is an embedded block", options: .literal, range: nil)
+            return content.replacingOccurrences(of: "((\(referredBlock.id)))", with: "{{% block-reference %}}\(referredBlock.content){{% /block-reference %}}", options: .literal, range: nil)
         }
     }
     
@@ -151,7 +151,7 @@ struct Page: Identifiable, Equatable {
     
     func yamlHeader() -> String {
         let headerContent = self.properties.map { "\($0.0): \($0.1)\n"}.joined(separator: "")
-        return "---\n" + "title: \(name)\n" + headerContent + "---"
+        return "---\n" + "title: \"\(name)\"\n" + headerContent + "---"
     }
     
     func processedContent(allPages: [Page], allBlocks: [Block]) -> String {
@@ -178,7 +178,7 @@ let allBlocks = allPages
 //    }
 
 allPages.forEach { page in
-    let filename = getDocumentsDirectory().appendingPathComponent("compiled-graph-test", isDirectory: true).appendingPathComponent("\(page.id).md")
+    let filename = getDocumentsDirectory().appendingPathComponent("compiled-graph-test", isDirectory: true).appendingPathComponent("\(page.name).md")
     do {
         try page.processedContent(allPages: allPages, allBlocks: allBlocks)
             .write(to: filename, atomically: true, encoding: String.Encoding.utf8)
