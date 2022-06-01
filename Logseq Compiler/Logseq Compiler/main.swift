@@ -114,7 +114,7 @@ struct Block: Identifiable, Equatable {
     }
     
     func file() -> String {
-        let headerContent = self.properties.map { "\($0.0): \($0.1)\n"}.joined(separator: "")
+        let headerContent = (self.properties.map { "\($0.0): \($0.1)\n"} + ["logseq-type: block\n"]).joined(separator: "")
         return "---\n" + "title: \(id)\n" + headerContent + "---\n" + content
     }
     
@@ -170,7 +170,7 @@ struct Page: Identifiable, Equatable {
     }
     
     func yamlHeader() -> String {
-        let headerContent = self.properties.map { "\($0.0): \($0.1)\n"}.joined(separator: "")
+        let headerContent = (self.properties.map { "\($0.0): \($0.1)\n"} + ["logseq-type: page\n"]).joined(separator: "")
         return "---\n" + "title: \"\(name)\"\n" + headerContent + "---"
     }
     
