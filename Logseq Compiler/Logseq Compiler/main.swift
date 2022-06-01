@@ -8,8 +8,6 @@
 import Foundation
 import SwiftyJSON
 
-let graphString = try! String(contentsOf: getDownloadsDirectory().appendingPathComponent("graph.json"))
-
 func getDownloadsDirectory() -> URL {
     let paths = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)
     return paths[0]
@@ -19,13 +17,13 @@ enum CompilerError: Error {
     case parsingError
 }
 
-let cleanedGraphString = graphString.replacingOccurrences(of: "\n", with: "\\n  ")
-
-let graphJSON = try! JSON(data: cleanedGraphString.data(using: .utf8)!)
-
 typealias Properties = JSON
 
-struct Block: Identifiable, Equatable {
+class Block: Identifiable, Equatable {
+    static func == (lhs: Block, rhs: Block) -> Bool {
+        return lhs.id = rhs.id
+    }
+    
     enum Key: String {
         case id
         case content
@@ -37,9 +35,10 @@ struct Block: Identifiable, Equatable {
     let content: String
     let children: [Block]
     
+    let index: Int
     let properties: Properties
     
-    init(_ json: JSON) throws {
+    init(_ json: JSON, index: Int, page: Page, parent: Block?) throws {
         guard let id = json[Key.id.rawValue].string,
               let content = json[Key.content.rawValue].string
         else { throw CompilerError.parsingError }
@@ -47,8 +46,11 @@ struct Block: Identifiable, Equatable {
         self.id = id
         self.content = content
         
-        self.children = json[Key.children.rawValue].compactMap { try? Block($0.1) }
         self.properties = json[Key.properties.rawValue]
+        self.index = index
+        
+        self.children = json[Key.children.rawValue].enumerated().compactMap { try? Block($0.element.1, index: $0.offset + 1, page: page, parent: self) } //can't use zero for weight in hugo
+
     }
     
     func allDescendents() -> [Block] {
@@ -90,32 +92,35 @@ struct Block: Identifiable, Equatable {
         }
     }
     
-    private func indentLineBreaks(content: String, indent: String) -> String {
-        content.replacingOccurrences(of: "\n", with: "\n" + indent, options: .regularExpression, range: nil)
-    }
-    
-    private func wrapBlockShortcode(id: String, content: String) -> String {
-        return "{{% block \(id) %}}" + content + "{{% /block %}}"
-    }
-    
-    func allContent(indent: String, allPages: [Page], allBlocks: [Block]) -> String {
-        guard !isPageProperties(page: try! page(allPages: allPages)) else { return "" }
-        
-        let blockReferenceReplacedContent = indent + replaceBlockReference(content: self.content, allPages: allPages, allBlocks: allBlocks) //dropped "- " for now
-        let finalBlockContent = blockReferenceReplacedContent //indentLineBreaks(content: blockReferenceReplacedContent, indent: indent)
-        let childContent = children.map { "\n" + $0.allContent(indent: "", allPages: allPages, allBlocks: allBlocks) }.joined(separator: "") //no indent for now
-        
-        return wrapBlockShortcode(id: id, content: finalBlockContent + childContent)
-    }
-    
-    func isPageProperties(page: Page) -> Bool {
-        guard page.children.first == self, let firstLine = self.content.split(separator: "\n").first else { return false }
+    func isPageProperties() -> Bool {
+        guard index == 1, let firstLine = self.content.split(separator: "\n").first else { return false }
         return firstLine.contains("::") || firstLine == "---"
     }
     
+    private func hugoModifiedContent() -> String {
+        return content.replacingOccurrences(of: "(../assets/", with: "(/assets/")
+    }
+    
     func file() -> String {
-        let headerContent = (self.properties.map { "\($0.0): \($0.1)\n"} + ["logseq-type: block\n"]).joined(separator: "")
-        return "---\n" + "title: \(id)\n" + headerContent + "---\n" + content
+        let content = hugoModifiedContent()
+        let headerContent = (self.properties.map { "\($0.0): \($0.1)\n"} + ["logseq-type: block\nweight: \(index)\n"]).joined(separator: "")
+        
+        let trimmedContent: String
+        let maxCharacterCount = 100
+        
+        if !content.contains("\n") && content.count < maxCharacterCount {
+            trimmedContent = content
+        } else {
+            let firstLine = content.prefix(while: { $0 != "\n" })
+            if firstLine.count > maxCharacterCount {
+                trimmedContent = firstLine.prefix(maxCharacterCount-3).split(separator: " ").dropLast().joined(separator: " ") + "..."
+            } else {
+                trimmedContent = String(firstLine)
+            }
+            
+        }
+        
+        return "---\n" + "title: \"\(trimmedContent)\"\n" + headerContent + "---\n" + content
     }
     
     func createSection(inDirectory directory: URL) {
@@ -129,7 +134,11 @@ struct Block: Identifiable, Equatable {
 }
 
 
-struct Page: Identifiable, Equatable {
+class Page: Identifiable, Equatable {
+    static func == (lhs: Page, rhs: Page) -> Bool {
+        return lhs.id == rhs.id
+    }
+    
     
     enum Key: String {
         case id
@@ -152,7 +161,7 @@ struct Page: Identifiable, Equatable {
         self.id = id
         self.name = name
         
-        self.children = json[Key.children.rawValue].compactMap { try? Block($0.1) }
+        self.children = json[Key.children.rawValue].enumerated().compactMap { try? Block($0.element.1, index: $0.offset + 1, page: self, parent: nil) } //can't use zero for weight in hugo
         self.properties = json[Key.properties.rawValue]
     }
     
@@ -174,26 +183,24 @@ struct Page: Identifiable, Equatable {
         return "---\n" + "title: \"\(name)\"\n" + headerContent + "---"
     }
     
-    func processedContent(allPages: [Page], allBlocks: [Block]) -> String {
-        ([yamlHeader()] + children.map { $0.allContent(indent: "", allPages: allPages, allBlocks: allBlocks) })
-            .joined(separator: "\n")
-    }
-    
     func sectionFile() -> String {
         return yamlHeader() + "\n" + name
     }
     
     func createSection(inDirectory directory: URL) {
-        let pageDirectory = getTestDirectory().appendingPathComponent(name, isDirectory: true)
+        let pageDirectory = directory.appendingPathComponent(name, isDirectory: true)
         try! FileManager.default.createDirectory(at: pageDirectory, withIntermediateDirectories: true, attributes: nil)
         try! sectionFile().write(to: pageDirectory.appendingPathComponent("_index.md"), atomically: true, encoding: .utf8)
-        children.forEach { $0.createSection(inDirectory: pageDirectory) }
+        
+        children
+            .filter { !$0.isPageProperties() }
+            .forEach { $0.createSection(inDirectory: pageDirectory) }
     }
 }
 
 func getTestDirectory() -> URL {
     let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-    return paths[0].appendingPathComponent("compiled-graph-test", isDirectory: true).appendingPathComponent("notes", isDirectory: true)
+    return paths[0].appendingPathComponent("compiled-graph-test", isDirectory: true)
 }
 
 func emptyDirectory(_ directory: URL) throws {
@@ -201,32 +208,45 @@ func emptyDirectory(_ directory: URL) throws {
         try FileManager.default.removeItem(at: url)
     }
 }
- 
+
+func copyContents(from: URL, to: URL) throws {
+    try FileManager.default.contentsOfDirectory(at: from, includingPropertiesForKeys: nil).forEach { url in
+        try FileManager.default.copyItem(at: url, to: to.appendingPathComponent(url.lastPathComponent))
+    }
+}
+
+let originDirectory = getDownloadsDirectory().appendingPathComponent("export", isDirectory: true)
+let assetsOrigin = originDirectory.appendingPathComponent("assets", isDirectory: true)
+let graphString = try! String(contentsOf: originDirectory.appendingPathComponent("graph.json"))
+
+let cleanedGraphString = graphString.replacingOccurrences(of: "\n", with: "\\n")
+let graphJSON = try! JSON(data: cleanedGraphString.data(using: .utf8)!)
+
+
+let notesDestination = getTestDirectory().appendingPathComponent("notes", isDirectory: true)
+let assetsDestination = getTestDirectory().appendingPathComponent("assets", isDirectory: true)
+
+
+
+
 //logic follows...
 
 let allPages = graphJSON["blocks"].map { try! Page($0.1) }
 //    .filter { $0.properties.dictionaryValue["public"]?.boolValue == true }
 let allBlocks = allPages
     .flatMap { $0.allDescendents() }
-//    .reduce([String: Block]()) {
-//        var dict = $0
-//        dict[$1.id] = $1
-//        return dict
-//    }
 
-//allPages.forEach { page in
-//    let filename = getDocumentsDirectory().appendingPathComponent("compiled-graph-test", isDirectory: true).appendingPathComponent("\(page.name).md")
-//    do {
-//        try page.processedContent(allPages: allPages, allBlocks: allBlocks)
-//            .write(to: filename, atomically: true, encoding: String.Encoding.utf8)
-//    } catch {
-//        print("error writing file \(page.name)")
-//        // failed to write file – bad permissions, bad filename, missing permissions, or more likely it can't be converted to the encoding
-//    }
-//}
+
+
 
 try! emptyDirectory(getTestDirectory())
-allPages.forEach { $0.createSection(inDirectory: getTestDirectory()) }
+
+try! FileManager.default.createDirectory(at: notesDestination, withIntermediateDirectories: true)
+allPages.forEach { $0.createSection(inDirectory: notesDestination) }
+
+try! FileManager.default.createDirectory(at: assetsDestination, withIntermediateDirectories: true)
+try! copyContents(from: assetsOrigin, to: assetsDestination)
+
 
 
 //filter for public last, in order to decide what types of links should be visible
