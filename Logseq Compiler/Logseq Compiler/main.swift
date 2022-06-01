@@ -8,10 +8,12 @@
 import Foundation
 import SwiftyJSON
 
-let graphString =
-"""
-{"version":1,"blocks":[{"id":"8d2ec83a-43d9-41a5-931d-fc5d0a229c9e","page-name":"Contents","children":[{"id":"62957c3c-3b58-41bf-a381-2cace1837b19","format":"markdown","children":[],"content":""}]},{"id":"62957c3c-df9c-4703-950a-a4f5837fe386","page-name":"May 30th, 2022","format":"markdown","children":[{"id":"62957c3c-6fd4-4ee2-bcf1-c0b4e62a2860","properties":{},"format":"markdown","children":[],"content":"This can be a demo graph that I use to build out some publish functionality\nid:: 62957c3c-6fd4-4ee2-bcf1-c0b4e62a2860"},{"id":"62957c4b-dded-4270-a87a-48f1c20c69a5","properties":{},"format":"markdown","children":[],"content":"[[A good idea]]"},{"id":"62957ca5-59ef-43cd-86c3-341e0a7f4d6b","properties":{},"format":"markdown","children":[],"content":"[[Another test area]]"}]},{"id":"62957c4e-2041-43f9-9668-7a175e04e93d","page-name":"A good idea","properties":{"public":true,"location":["Durham"]},"format":"markdown","children":[{"id":"62957c4f-27cf-435c-bf59-a3d6a38824b9","properties":{"public":true,"location":["Durham"]},"format":"markdown","children":[],"content":"public:: true\nlocation:: [[Durham]]"},{"id":"62957c5e-07aa-4a2d-a6bb-84f6dbfe34b2","properties":{"type":"claim"},"format":"markdown","children":[{"id":"62959447-676d-44ca-a6f6-45c5aaf7be43","properties":{},"format":"markdown","children":[],"content":"some"},{"id":"62959449-8764-4bd8-8b15-749d5931dee2","properties":{},"format":"markdown","children":[],"content":"children"},{"id":"6295944a-fdff-4f1b-8ab0-c2b711fa32fb","properties":{},"format":"markdown","children":[],"content":"here"},{"id":"6295944a-a16e-43bc-b343-95c69a21e320","properties":{},"format":"markdown","children":[{"id":"6295944f-ca22-4b2f-b3f1-dd90bd9cc198","properties":{},"format":"markdown","children":[{"id":"62959450-24a7-4f09-8de0-0983481f6029","properties":{},"format":"markdown","children":[{"id":"62959452-3414-489c-a24c-2144b22838ea","properties":{"testing":"some stuff"},"format":"markdown","children":[],"content":"look\ntesting:: some stuff"},{"id":"6295a5c1-73f9-482a-bed6-a621be5d9c41","properties":{},"format":"markdown","children":[],"content":"here's another block reference ((62957c3c-6fd4-4ee2-bcf1-c0b4e62a2860))"}],"content":"this"}],"content":"does"}],"content":"how"}],"content":"point number one\nid:: 62957c5e-07aa-4a2d-a6bb-84f6dbfe34b2\ntype:: claim"},{"id":"62957cd4-338d-42ff-bb32-c3fa13fd661d","properties":{},"format":"markdown","children":[],"content":"Another block\nwith line breaks"}]},{"id":"62957c5b-0c33-444c-9e82-082fb1e6d19d","page-name":"new page: durham","format":"markdown","children":[{"id":"62957c5b-e5dc-46a9-ba83-8388cdcbb589","properties":{"title":"new page: durham"},"format":"markdown","children":[],"content":"title:: new page: durham"},{"id":"62957c5b-81c9-493e-a1cb-fba66c4db7d3","properties":{},"format":"markdown","children":[],"content":""}]},{"id":"62957cb3-ff2b-475a-bb9c-a2f1edfa821e","page-name":"Another test area","properties":{"public":true},"format":"markdown","children":[{"id":"62957cc9-d8ef-4fe2-90db-ef7e7328441d","properties":{"public":true},"format":"markdown","children":[],"content":"public:: true"},{"id":"62957cb5-ec21-41fb-a87d-fd81ef84541a","properties":{},"format":"markdown","children":[],"content":"((62957c5e-07aa-4a2d-a6bb-84f6dbfe34b2))"}]},{"id":"629592f4-17f5-43cf-b7d8-2ab65be0fcba","page-name":"May 31st, 2022","properties":{"public":true},"format":"markdown","children":[{"id":"62959500-086b-47e6-95db-d2bb7e03d24c","properties":{"public":true},"format":"markdown","children":[],"content":"public:: true"},{"id":"629592f4-58bf-4cfb-b59c-61791f87dca0","properties":{},"format":"markdown","children":[],"content":"a new day"},{"id":"629594ab-3205-4fb7-abd5-4e3e84b20a7a","properties":{},"format":"markdown","children":[],"content":"a new cat"}]}]}
-"""
+let graphString = try! String(contentsOf: getDownloadsDirectory().appendingPathComponent("graph.json"))
+
+func getDownloadsDirectory() -> URL {
+    let paths = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)
+    return paths[0]
+}
 
 enum CompilerError: Error {
     case parsingError
@@ -70,7 +72,7 @@ struct Block: Identifiable, Equatable {
         }
     }
     
-    private func replaceBlockReference(allBlocks: [Block]) -> String {
+    private func replaceBlockReference(content: String, allPages: [Page], allBlocks: [Block]) -> String {
         guard content.contains("((") else { return content }
         
         print(content.contains("((62957c3c-6fd4-4ee2-bcf1-c0b4e62a2860))"))
@@ -84,7 +86,7 @@ struct Block: Identifiable, Equatable {
         
         return referredBlocks.reduce(content) { content, referredBlock in
             print(content)
-            return content.replacingOccurrences(of: "((\(referredBlock.id)))", with: "{{% block-reference %}}\(referredBlock.content){{% /block-reference %}}", options: .literal, range: nil)
+            return content.replacingOccurrences(of: "((\(referredBlock.id)))", with: "[\(referredBlock.content)]" + "({{< relref \"\(try! referredBlock.page(allPages: allPages).name).md#\(referredBlock.id)\" >}})", options: .literal, range: nil)
         }
     }
     
@@ -92,22 +94,40 @@ struct Block: Identifiable, Equatable {
         content.replacingOccurrences(of: "\n", with: "\n" + indent, options: .regularExpression, range: nil)
     }
     
+    private func wrapBlockShortcode(id: String, content: String) -> String {
+        return "{{% block \(id) %}}" + content + "{{% /block %}}"
+    }
+    
     func allContent(indent: String, allPages: [Page], allBlocks: [Block]) -> String {
         guard !isPageProperties(page: try! page(allPages: allPages)) else { return "" }
         
-        let blockReferenceReplacedContent = indent + "- " + replaceBlockReference(allBlocks: allBlocks)
-        let finalBlockContent = indentLineBreaks(content: blockReferenceReplacedContent, indent: indent)
-        let childContent = children.map { "\n" + $0.allContent(indent: "     " + indent, allPages: allPages, allBlocks: allBlocks) }.joined(separator: "")
+        let blockReferenceReplacedContent = indent + replaceBlockReference(content: self.content, allPages: allPages, allBlocks: allBlocks) //dropped "- " for now
+        let finalBlockContent = blockReferenceReplacedContent //indentLineBreaks(content: blockReferenceReplacedContent, indent: indent)
+        let childContent = children.map { "\n" + $0.allContent(indent: "", allPages: allPages, allBlocks: allBlocks) }.joined(separator: "") //no indent for now
         
-        return finalBlockContent + childContent
+        return wrapBlockShortcode(id: id, content: finalBlockContent + childContent)
     }
     
     func isPageProperties(page: Page) -> Bool {
         guard page.children.first == self, let firstLine = self.content.split(separator: "\n").first else { return false }
         return firstLine.contains("::") || firstLine == "---"
     }
+    
+    func file() -> String {
+        let headerContent = self.properties.map { "\($0.0): \($0.1)\n"}.joined(separator: "")
+        return "---\n" + "title: \(id)\n" + headerContent + "---\n" + content
+    }
+    
+    func createSection(inDirectory directory: URL) {
+        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
+        let blockDirectory = directory.appendingPathComponent(id)
+        try! FileManager.default.createDirectory(at: blockDirectory, withIntermediateDirectories: true)
+        try! file().write(to: blockDirectory.appendingPathComponent("_index.md"), atomically: true, encoding: .utf8)
+        children.forEach { $0.createSection(inDirectory: blockDirectory) }
+    }
 }
+
 
 struct Page: Identifiable, Equatable {
     
@@ -158,13 +178,30 @@ struct Page: Identifiable, Equatable {
         ([yamlHeader()] + children.map { $0.allContent(indent: "", allPages: allPages, allBlocks: allBlocks) })
             .joined(separator: "\n")
     }
+    
+    func sectionFile() -> String {
+        return yamlHeader() + "\n" + name
+    }
+    
+    func createSection(inDirectory directory: URL) {
+        let pageDirectory = getTestDirectory().appendingPathComponent(name, isDirectory: true)
+        try! FileManager.default.createDirectory(at: pageDirectory, withIntermediateDirectories: true, attributes: nil)
+        try! sectionFile().write(to: pageDirectory.appendingPathComponent("_index.md"), atomically: true, encoding: .utf8)
+        children.forEach { $0.createSection(inDirectory: pageDirectory) }
+    }
 }
 
-func getDocumentsDirectory() -> URL {
+func getTestDirectory() -> URL {
     let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-    return paths[0]
+    return paths[0].appendingPathComponent("compiled-graph-test", isDirectory: true).appendingPathComponent("notes", isDirectory: true)
 }
 
+func emptyDirectory(_ directory: URL) throws {
+    try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).forEach { url in
+        try FileManager.default.removeItem(at: url)
+    }
+}
+ 
 //logic follows...
 
 let allPages = graphJSON["blocks"].map { try! Page($0.1) }
@@ -177,16 +214,19 @@ let allBlocks = allPages
 //        return dict
 //    }
 
-allPages.forEach { page in
-    let filename = getDocumentsDirectory().appendingPathComponent("compiled-graph-test", isDirectory: true).appendingPathComponent("\(page.name).md")
-    do {
-        try page.processedContent(allPages: allPages, allBlocks: allBlocks)
-            .write(to: filename, atomically: true, encoding: String.Encoding.utf8)
-    } catch {
-        print("error writing file \(page.name)")
-        // failed to write file – bad permissions, bad filename, missing permissions, or more likely it can't be converted to the encoding
-    }
-}
+//allPages.forEach { page in
+//    let filename = getDocumentsDirectory().appendingPathComponent("compiled-graph-test", isDirectory: true).appendingPathComponent("\(page.name).md")
+//    do {
+//        try page.processedContent(allPages: allPages, allBlocks: allBlocks)
+//            .write(to: filename, atomically: true, encoding: String.Encoding.utf8)
+//    } catch {
+//        print("error writing file \(page.name)")
+//        // failed to write file – bad permissions, bad filename, missing permissions, or more likely it can't be converted to the encoding
+//    }
+//}
+
+try! emptyDirectory(getTestDirectory())
+allPages.forEach { $0.createSection(inDirectory: getTestDirectory()) }
 
 
 //filter for public last, in order to decide what types of links should be visible
