@@ -8,20 +8,70 @@
 import Foundation
 import SwiftyJSON
 
-func getDownloadsDirectory() -> URL {
-    let paths = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)
-    return paths[0]
-}
 
 enum CompilerError: Error {
     case parsingError
 }
 
+let indexFile = "_index.md"
 typealias Properties = JSON
 
-class Block: Identifiable, Equatable {
+struct Graph {
+    
+    enum Link {
+        case link
+        case alias
+        case inlineAlias
+    }
+    
+    let pages: [Page]
+    let blocks: [Block]
+    let allContent: [BlockType]
+    let links: [Block: [BlockType]]
+    
+    init(_ json: JSON) {
+        let pages = json["blocks"].map { try! Page($0.1) }
+        //    .filter { $0.properties.dictionaryValue["public"]?.boolValue == true }
+        let allBlocks = pages
+            .flatMap { $0.allDescendents() }
+        
+        self.pages = pages
+        self.blocks = allBlocks
+        self.links = populateLinks(allBlocks: allBlocks)
+    }
+    
+    private func populateLinks(allBlocks: [Block]) -> [Block: [BlockType]] {
+        allBlocks.compactMap { block in
+            //find page link
+            
+            //find page alias
+            //find page inline alias
+            //find page embed
+            
+            //find block link
+            //find block inline alias
+            //find block embed
+        }
+    }
+    
+    
+    
+    
+}
+
+protocol BlockType {
+    var id: String { get }
+    var children: [Block] { get }
+}
+
+
+class Block: BlockType, Equatable, Hashable {
     static func == (lhs: Block, rhs: Block) -> Bool {
-        return lhs.id = rhs.id
+        return lhs.id == rhs.id
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
     
     enum Key: String {
@@ -33,10 +83,12 @@ class Block: Identifiable, Equatable {
     
     let id: String
     let content: String
-    let children: [Block]
+    private(set) var children: [Block] = []
     
     let index: Int
     let properties: Properties
+    let parent: Block?
+    let page: Page
     
     init(_ json: JSON, index: Int, page: Page, parent: Block?) throws {
         guard let id = json[Key.id.rawValue].string,
@@ -49,8 +101,10 @@ class Block: Identifiable, Equatable {
         self.properties = json[Key.properties.rawValue]
         self.index = index
         
+        self.parent = parent
+        self.page = page
+        
         self.children = json[Key.children.rawValue].enumerated().compactMap { try? Block($0.element.1, index: $0.offset + 1, page: page, parent: self) } //can't use zero for weight in hugo
-
     }
     
     func allDescendents() -> [Block] {
@@ -61,35 +115,28 @@ class Block: Identifiable, Equatable {
         return allBlocks.values.filter { $0.content.contains("((\(self.id)))") }
     }
     
-    func parent(allBlocks: [String: Block]) -> Block? {
-        return allBlocks.values.filter { $0.children.contains(where: { $0 == self } ) }.first
-    }
+//    private func replaceBlockReference(content: String, allPages: [Page], allBlocks: [Block]) -> String {
+//        guard content.contains("((") else { return content }
+//
+//        print(content.contains("((62957c3c-6fd4-4ee2-bcf1-c0b4e62a2860))"))
+//        print(allBlocks.map { $0.id })
+//
+//        let referredBlocks = allBlocks.filter { content.contains("((\($0.id)))")}
+//
+//        print("all block contains?")
+//        print(allBlocks.contains(where: { $0.id == "62957c3c-6fd4-4ee2-bcf1-c0b4e62a2860"}))
+//        print(referredBlocks.map { $0.content })
+//
+//        return referredBlocks.reduce(content) { content, referredBlock in
+//            print(content)
+//            return content.replacingOccurrences(of: "((\(referredBlock.id)))", with: "[\(referredBlock.content)]" + "({{< relref \"\(try! referredBlock.page(allPages: allPages).name).md#\(referredBlock.id)\" >}})", options: .literal, range: nil)
+//        }
+//    }
     
-    func page(allPages: [Page]) throws -> Page {
-        let page = allPages.filter { $0.allDescendents().contains { $0 == self } }.first
-        if let page = page {
-            return page
-        } else {
-            throw CompilerError.parsingError
-        }
-    }
-    
-    private func replaceBlockReference(content: String, allPages: [Page], allBlocks: [Block]) -> String {
-        guard content.contains("((") else { return content }
+    private func getAncestors() -> [Block] {
+        guard let parent = parent else { return [] }
         
-        print(content.contains("((62957c3c-6fd4-4ee2-bcf1-c0b4e62a2860))"))
-        print(allBlocks.map { $0.id })
-        
-        let referredBlocks = allBlocks.filter { content.contains("((\($0.id)))")}
-        
-        print("all block contains?")
-        print(allBlocks.contains(where: { $0.id == "62957c3c-6fd4-4ee2-bcf1-c0b4e62a2860"}))
-        print(referredBlocks.map { $0.content })
-        
-        return referredBlocks.reduce(content) { content, referredBlock in
-            print(content)
-            return content.replacingOccurrences(of: "((\(referredBlock.id)))", with: "[\(referredBlock.content)]" + "({{< relref \"\(try! referredBlock.page(allPages: allPages).name).md#\(referredBlock.id)\" >}})", options: .literal, range: nil)
-        }
+        return parent.getAncestors() + [parent]
     }
     
     func isPageProperties() -> Bool {
@@ -98,7 +145,8 @@ class Block: Identifiable, Equatable {
     }
     
     private func hugoModifiedContent() -> String {
-        return content.replacingOccurrences(of: "(../assets/", with: "(/assets/")
+        return content
+            .replacingOccurrences(of: "(../assets/", with: "(/assets/")
     }
     
     func file() -> String {
@@ -128,13 +176,12 @@ class Block: Identifiable, Equatable {
 
         let blockDirectory = directory.appendingPathComponent(id)
         try! FileManager.default.createDirectory(at: blockDirectory, withIntermediateDirectories: true)
-        try! file().write(to: blockDirectory.appendingPathComponent("_index.md"), atomically: true, encoding: .utf8)
+        try! file().write(to: blockDirectory.appendingPathComponent(indexFile), atomically: true, encoding: .utf8)
         children.forEach { $0.createSection(inDirectory: blockDirectory) }
     }
 }
 
-
-class Page: Identifiable, Equatable {
+class Page: BlockType, Equatable {
     static func == (lhs: Page, rhs: Page) -> Bool {
         return lhs.id == rhs.id
     }
@@ -149,7 +196,7 @@ class Page: Identifiable, Equatable {
     
     let id: String
     let name: String
-    let children: [Block]
+    private(set) var children: [Block] = []
     
     let properties: Properties
     
@@ -160,9 +207,9 @@ class Page: Identifiable, Equatable {
         
         self.id = id
         self.name = name
+        self.properties = json[Key.properties.rawValue]
         
         self.children = json[Key.children.rawValue].enumerated().compactMap { try? Block($0.element.1, index: $0.offset + 1, page: self, parent: nil) } //can't use zero for weight in hugo
-        self.properties = json[Key.properties.rawValue]
     }
     
     func allDescendents() -> [Block] {
@@ -173,9 +220,9 @@ class Page: Identifiable, Equatable {
         return allBlocks.values.filter { $0.content.contains("[[\(self.name)]]")}
     }
     
-    func namespace(allPages: [Page]) -> Page? {
+    func namespace() -> String? {
         let prefix = name.split(separator: "/").dropLast().joined(separator: "/")
-        return allPages.filter { $0.name == prefix }.first
+        if prefix.count > 0 { return prefix } else { return nil }
     }
     
     func yamlHeader() -> String {
@@ -190,12 +237,39 @@ class Page: Identifiable, Equatable {
     func createSection(inDirectory directory: URL) {
         let pageDirectory = directory.appendingPathComponent(name, isDirectory: true)
         try! FileManager.default.createDirectory(at: pageDirectory, withIntermediateDirectories: true, attributes: nil)
-        try! sectionFile().write(to: pageDirectory.appendingPathComponent("_index.md"), atomically: true, encoding: .utf8)
+        try! sectionFile().write(to: pageDirectory.appendingPathComponent(indexFile), atomically: true, encoding: .utf8)
         
         children
             .filter { !$0.isPageProperties() }
             .forEach { $0.createSection(inDirectory: pageDirectory) }
     }
+}
+
+struct Relationship {
+    
+    let relation: Page
+    let object: [Block]
+}
+
+
+extension Block {
+    struct Links {
+        let referrers: [Block]
+        let relationships: [Relationship]
+    }
+    
+}
+
+
+
+
+
+
+//compiler stuff
+
+func getDownloadsDirectory() -> URL {
+    let paths = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)
+    return paths[0]
 }
 
 func getTestDirectory() -> URL {
@@ -231,10 +305,9 @@ let assetsDestination = getTestDirectory().appendingPathComponent("assets", isDi
 
 //logic follows...
 
-let allPages = graphJSON["blocks"].map { try! Page($0.1) }
-//    .filter { $0.properties.dictionaryValue["public"]?.boolValue == true }
-let allBlocks = allPages
-    .flatMap { $0.allDescendents() }
+
+
+//create a set of extra data to be included alongside blocks
 
 
 
