@@ -148,30 +148,50 @@ struct Graph {
     }
 }
 
-extension Block {
+extension HugoBlock {
     
-    func showable() -> Bool {
-        let isNotPagePropertiesAndHasContent = !preblock && (content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").count > 0
-        return isPage() || isNotPagePropertiesAndHasContent
+    private func file() -> String {
+        return hugoYAML() + (hugoModifiedContent() ?? "")
     }
     
-    func isPage() -> Bool {
-        return pageID == nil && parentID == nil
+    private func hugoYAML() -> String {
+        let headerContent = (self.block.properties.map { "\($0.0): \($0.1)\n"} + ["logseq-type: \(block.isPage() ? "page" : "block")\nweight: \(siblingIndex)\n"]).joined(separator: "")
+        return "---\n" + "title: \"\(readableName() ?? "Untitled")\"\n" + headerContent + "---\n"
     }
     
-    func pathComponent() -> String {
-        if isPage() {
-            return originalName ?? name ?? "\(id)"
-        } else {
-            return uuid
+    //in content need to convert:
+    //embeds, links, youtube, twitter, assets link, etc
+    func hugoModifiedContent() -> String? {
+        guard let content = block.content, content.count > 0 else { return nil }
+        
+        
+        
+        var updatedContent = content.replacingOccurrences(of: "(../assets/", with: "(/assets/")
+        
+        
+        linkPaths.forEach { (linkedBlock, path) in
+            if linkedBlock.isPage() {
+                //embedded page
+                
+                //inline alias
+                
+                //normal page link
+                
+            } else {
+                //embedded block
+                updatedContent = LinkFinder.blockEmbed(forBlock: linkedBlock).makeContentHugoFriendly(updatedContent)
+                
+                //normal block reference
+            }
+            
         }
+        return updatedContent
     }
-    
     
     func readableName() -> String? {
-        if isPage() {
-            return originalName ?? name
-        } else if let content = content {
+        if block.isPage() {
+            return block.originalName ?? block.name
+        } else if let content = hugoModifiedContent() {
             //use trimmed content since blocks don't have titles
             let trimmedContent: String
             let maxCharacterCount = 100
@@ -192,6 +212,27 @@ extension Block {
             return nil
         }
     }
+}
+
+
+extension Block {
+    func showable() -> Bool {
+        let isNotPagePropertiesAndHasContent = !preblock && (content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").count > 0
+        return isPage() || isNotPagePropertiesAndHasContent
+    }
+    
+    func isPage() -> Bool {
+        return pageID == nil && parentID == nil
+    }
+    
+    func pathComponent() -> String {
+        if isPage() {
+            return originalName ?? name ?? "\(id)"
+        } else {
+            return uuid
+        }
+    }
+    
 }
 
 extension Set where Element == Block {
@@ -280,45 +321,6 @@ struct HugoBlock: Hashable {
         try! file().write(to: blockDirectory.appendingPathComponent(indexFile), atomically: true, encoding: .utf8)
         superblocks.children(forBlock: self).forEach { $0.createSection(inDirectory: blockDirectory, superblocks: superblocks) }
     }
-    
-    private func file() -> String {
-        return hugoYAML() + hugoModifiedContent()
-    }
-    
-    private func hugoYAML() -> String {
-        let headerContent = (self.block.properties.map { "\($0.0): \($0.1)\n"} + ["logseq-type: \(block.isPage() ? "page" : "block")\nweight: \(siblingIndex)\n"]).joined(separator: "")
-        return "---\n" + "title: \"\(block.readableName() ?? "Untitled")\"\n" + headerContent + "---\n"
-    }
-    
-    //in content need to convert:
-    //embeds, links, youtube, twitter, assets link, etc
-    func hugoModifiedContent() -> String {
-        guard let content = block.content else { return "" }
-        
-        
-        
-        var updatedContent = content.replacingOccurrences(of: "(../assets/", with: "(/assets/")
-        
-        
-        linkPaths.forEach { (linkedBlock, path) in
-            if linkedBlock.isPage() {
-                //embedded page
-                
-                //inline alias
-                
-                //normal page link
-                
-            } else {
-                //embedded block
-                updatedContent = LinkFinder.blockEmbed(forBlock: linkedBlock).makeContentHugoFriendly(updatedContent)
-                
-                //normal block reference
-            }
-            
-        }
-        return updatedContent
-    }
-    
     
     static func == (lhs: HugoBlock, rhs: HugoBlock) -> Bool {
         return lhs.block == rhs.block
