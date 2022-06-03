@@ -18,103 +18,392 @@ typealias Properties = JSON
 
 struct Graph {
     
-    enum Link {
-        case link
-        case alias
-        case inlineAlias
-    }
+    let allContent: Set<SuperBlock>
     
-    let pages: [Page]
-    let blocks: [Block]
-    let allContent: [BlockType]
-    let links: [Block: [BlockType]]
+    let assetsFolder: URL
+    let destinationFolder: URL
     
-    init(_ json: JSON) {
-        let pages = json["blocks"].map { try! Page($0.1) }
-        //    .filter { $0.properties.dictionaryValue["public"]?.boolValue == true }
-        let allBlocks = pages
-            .flatMap { $0.allDescendents() }
+    init(jsonPath graphJSONPath: URL, assetsFolder: URL, destinationFolder: URL) {
+        //https://github.com/logseq/logseq/blob/master/deps/graph-parser/src/logseq/graph_parser/db/schema.cljs
         
-        self.pages = pages
-        self.blocks = allBlocks
-        self.links = populateLinks(allBlocks: allBlocks)
+        //get all content
+        // lq sq --graph demo '[:find (pull ?p [*]) :where (?p :block/uuid ?id)]' | pbcopy
+        
+        //use edn to json converter
+        //https://github.com/borkdude/jet
+        //populate data
+        
+        //convert all block references (and backlinks) to permalinks to block page
+        //create a partial for showing a block, which includes hierarchy, content, and collapsible children
+        
+        
+        //create all the blocks, map to [Block: [BlockWithExtraData]]
+        // blocks.filter { isPage } .create section...
+        
+        //filter for public
+        //    .filter { $0.properties.dictionaryValue["public"]?.boolValue == true }
+        
+        //this is the command
+        //lq sq --graph demo '[:find (pull ?p [*]) :where (?p :block/uuid ?id)]' | jet --to json > ./export/graph.json
+
+        self.assetsFolder = assetsFolder
+        self.destinationFolder = destinationFolder
+        
+        //let cleanedGraphString = graphString.replacingOccurrences(of: "\n", with: "\\n")
+        //let graphJSON = try! JSON(data: cleanedGraphString.data(using: .utf8)!)
+
+        let json = try! JSON(data: String(contentsOf: graphJSONPath).data(using: .utf8)!)
+        
+        let blocks = Set(json.arrayValue.map { try! Block($0) })
+        
+        self.allContent = Set(blocks.map { block in
+            return SuperBlock(block: block,
+                       siblingIndex: blocks.siblings(forBlock: block).leftSiblings.count + 1,
+                       parent: blocks.parent(forBlock: block),
+                       page: blocks.page(forBlock: block),
+                       namespace: blocks.namespace(forBlock: block),
+                       backlinks: blocks.backlinks(forBlock: block),
+                       links: blocks.links(forBlock: block),
+                       alias: blocks.aliases(forBlock: block))
+        })
     }
     
-    private func populateLinks(allBlocks: [Block]) -> [Block: [BlockType]] {
-        allBlocks.compactMap { block in
-            //find page link
-            
-            //find page alias
-            //find page inline alias
-            //find page embed
-            
-            //find block link
-            //find block inline alias
-            //find block embed
+    
+    
+    func exportForHugo() {
+        //empty destination folder
+        try! emptyDirectory(destinationFolder)
+        
+        
+        //create sections for blocks
+        let notesDestination = getTestDirectory().appendingPathComponent("notes", isDirectory: true)
+        try! FileManager.default.createDirectory(at: notesDestination, withIntermediateDirectories: true)
+        allContent.filter { $0.block.isPage();  }
+            .forEach { $0.createSection(inDirectory: notesDestination, superblocks: allContent)}
+        
+        //move assets
+        let assetsDestination = destinationFolder.appendingPathComponent("assets", isDirectory: true)
+        try! FileManager.default.createDirectory(at: assetsDestination, withIntermediateDirectories: true)
+        try! copyContents(from: assetsFolder, to: assetsDestination)
+    }
+    
+    private func emptyDirectory(_ directory: URL) throws {
+        try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).forEach { url in
+            try FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func copyContents(from: URL, to: URL) throws {
+        try FileManager.default.contentsOfDirectory(at: from, includingPropertiesForKeys: nil).forEach { url in
+            try FileManager.default.copyItem(at: url, to: to.appendingPathComponent(url.lastPathComponent))
+        }
+    }
+}
+
+extension Set where Element == Block {
+
+    
+    func parent(forBlock block: Block) -> Block? {
+        guard let parentID = block.parentID else { return nil }
+        return first { $0.id == parentID }
+    }
+    
+    func page(forBlock block: Block) -> Block? {
+        guard let pageID = block.pageID else { return nil }
+        return first { $0.id == pageID }
+    }
+    
+    func children(forBlock block: Block) -> [Block] {
+        return filter { $0.parentID == block.id }
+    }
+    
+    func namespace(forBlock block: Block) -> Block? {
+        guard let namespaceID = block.namespaceID else { return nil }
+        return first { $0.id == namespaceID }
+    }
+    
+    func backlinks(forBlock block: Block) -> [Block] {
+        return filter { $0.linkedIDs.contains(block.id) }
+    }
+    
+    func links(forBlock block: Block) -> [Block] {
+        return filter { block.linkedIDs.contains($0.id) }
+    }
+    
+    func aliases(forBlock block: Block) -> [Block] {
+        return filter { block.aliasIDs.contains($0.id) }
+    }
+    
+    func siblings(forBlock block: Block) -> (leftSiblings: [Block], rightSiblings: [Block]) {
+        var leftSiblings: [Block] = []
+        var leftmostSibling: Block = block
+        
+        while let nextLeftID = leftmostSibling.leftID, let nextLeft = first(where: { $0.id == nextLeftID }) {
+            leftSiblings.insert(nextLeft, at: 0)
+            leftmostSibling = nextLeft
+        }
+        
+        var rightSiblings: [Block] = []
+        var rightmostSibling: Block = block
+        
+        while let nextRight = first(where: { $0.leftID == rightmostSibling.id }) {
+            rightSiblings.append(nextRight)
+            rightmostSibling = nextRight
+        }
+        
+        return (leftSiblings: leftSiblings, rightSiblings: rightSiblings)
+    }
+}
+
+extension Set where Element == SuperBlock {
+    func children(forBlock superblock: SuperBlock) -> [SuperBlock] {
+        return filter { $0.parent == superblock.block }
+    }
+}
+
+
+struct SuperBlock: Hashable {
+    
+    let block: Block
+    let siblingIndex: Int
+    
+    let parent: Block?
+    let page: Block?
+    let namespace: Block?
+    
+    let backlinks: [Block]
+    let links: [Block]
+    let alias: [Block]
+    
+    
+    func createSection(inDirectory directory: URL, superblocks: Set<SuperBlock>) {
+        guard showable() else { return }
+
+        let blockDirectory = directory.appendingPathComponent(pathName())
+        try! FileManager.default.createDirectory(at: blockDirectory, withIntermediateDirectories: true)
+        try! file().write(to: blockDirectory.appendingPathComponent(indexFile), atomically: true, encoding: .utf8)
+        superblocks.children(forBlock: self).forEach { $0.createSection(inDirectory: blockDirectory, superblocks: superblocks) }
+    }
+    
+    func pathName() -> String {
+        if block.isPage() {
+            return block.originalName ?? block.name ?? "\(block.id)"
+        } else {
+            return block.uuid
         }
     }
     
+    private func file() -> String {
+        return hugoYAML() + hugoModifiedContent()
+    }
     
+    private func showable() -> Bool {
+        let isNotPagePropertiesAndHasContent = !block.preblock && (block.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").count > 0
+        return block.isPage() || isNotPagePropertiesAndHasContent
+    }
     
+    private func hugoYAML() -> String {
+        let headerContent = (self.block.properties.map { "\($0.0): \($0.1)\n"} + ["logseq-type: \(block.isPage() ? "page" : "block")\nweight: \(siblingIndex)\n"]).joined(separator: "")
+        return "---\n" + "title: \"\(blockTitle() ?? "Untitled")\"\n" + headerContent + "---\n"
+    }
     
+    private func blockTitle() -> String? {
+        if block.isPage() {
+            return block.originalName ?? block.name
+        } else if let content = block.content {
+            //use trimmed content since blocks don't have titles
+            let trimmedContent: String
+            let maxCharacterCount = 100
+            
+            if !content.contains("\n") && content.count < maxCharacterCount {
+                trimmedContent = content
+            } else {
+                let firstLine = content.prefix(while: { $0 != "\n" })
+                if firstLine.count > maxCharacterCount {
+                    trimmedContent = firstLine.prefix(maxCharacterCount-3).split(separator: " ").dropLast().joined(separator: " ") + "..."
+                } else {
+                    trimmedContent = String(firstLine)
+                }
+            }
+            
+            return trimmedContent
+        } else {
+            return nil
+        }
+    }
+    
+    //in content need to convert:
+    //embeds, links, youtube, twitter, assets link, etc
+    func hugoModifiedContent() -> String {
+        guard let content = block.content else { return "" }
+        
+        
+        
+        var updatedContent = content.replacingOccurrences(of: "(../assets/", with: "(/assets/")
+        
+        
+        links.forEach { linkedBlock in
+            if linkedBlock.isPage() {
+                //embedded page
+                
+                //inline alias
+                
+                //normal page link
+                
+            } else {
+                //embedded block
+                updatedContent = LinkFinder.blockEmbed(forBlock: linkedBlock).makeContentHugoFriendly(updatedContent)
+                
+                //normal block reference
+            }
+            
+        }
+        return updatedContent
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(block)
+    }
 }
 
-protocol BlockType {
-    var id: String { get }
-    var children: [Block] { get }
+enum LinkFinder {
+    case blockEmbed(forBlock: Block)
+    
+    
+    func shortcodeName() -> String {
+        switch self {
+        case .blockEmbed:
+            return "block-embed"
+        }
+    }
+    
+    func pattern() -> String {
+        switch self {
+        case .blockEmbed(let block):
+            return #"\{\{\s*\(\(\s*"# + block.uuid + #"\s*\)\)\}\}"#
+//            return #"{{embed\s*\(\(\s*(\Q"# + block.uuid + #"\E)\s*\)\)\s*}}"#
+        }
+    }
+    
+    func hugoFriendlyLink() -> String {
+        switch self {
+        case .blockEmbed(let block):
+            return "{{< \(shortcodeName()) \(block.uuid) >}}"
+        }
+    }
+    
+    func ranges(inContent content: String) -> [NSRange] {
+        let regex = try! NSRegularExpression(pattern: self.pattern())
+        return regex.matches(in: content, options: .reportCompletion, range: NSRange(content.startIndex..<content.endIndex, in: content)).map { (result: NSTextCheckingResult) in
+            print("found " + pattern())
+            return result.range
+        }
+    }
+    
+    func makeContentHugoFriendly(_ content: String) -> String {
+        var updatedContent = content as NSString
+        
+        ranges(inContent: content).forEach { range in
+            updatedContent = updatedContent.replacingCharacters(in: range, with: hugoFriendlyLink()) as NSString
+        }
+        
+        return updatedContent as String
+    }
 }
 
-
-class Block: BlockType, Equatable, Hashable {
+struct Block: Hashable {
+    
+    enum Key: String {
+        case uuid = "block/uuid"
+        case id = "db/id"
+        
+        case name = "block/name"
+        case originalName = "block/original-name"
+        case content = "block/content"
+        
+        
+        case pageID = "block/page"
+        case parentID = "block/parent"
+        case leftID = "block/left"
+        case namespaceID = "block/namespace"
+        
+        case properties = "block/properties"
+        case preblock = "block/pre-block?"
+        case format = "block/format"
+        
+        case updatedAt = "block/updated-at"
+        case createdAt = "block/created-at"
+        
+        case refs = "block/refs"
+        case pathRefs = "block/path-refs"
+        case alias = "block"
+    }
+    
+    let uuid: String
+    let id: Int
+    
+    let name: String?
+    let originalName: String?
+    let content: String?
+    
+    let pageID: Int?
+    let parentID: Int?
+    let leftID: Int?
+    let namespaceID: Int?
+    
+    let properties: Properties
+    let preblock: Bool
+    let format: String?
+    
+    let updatedAt: TimeInterval?
+    let createdAt: TimeInterval?
+    
+    let linkedIDs: [Int]
+    let inheritedLinkedIDs: [Int]
+    let aliasIDs: [Int]
+    
+    init(_ json: JSON) throws {
+        guard let id = json[Key.id.rawValue].int,
+              let uuid = json[Key.uuid.rawValue].string
+        else { throw CompilerError.parsingError }
+        
+        self.uuid = uuid
+        self.id = id
+        
+        
+        self.name = json[Key.name.rawValue].string
+        self.originalName = json[Key.originalName.rawValue].string
+        self.content = json[Key.content.rawValue].string
+        
+        self.pageID = json[Key.pageID.rawValue][Key.id.rawValue].int
+        self.parentID = json[Key.parentID.rawValue][Key.id.rawValue].int
+        self.leftID = json[Key.leftID.rawValue][Key.id.rawValue].int
+        self.namespaceID = json[Key.namespaceID.rawValue][Key.id.rawValue].int
+        
+        self.properties = json[Key.properties.rawValue]
+        self.preblock = json[Key.preblock.rawValue].boolValue
+        self.format = json[Key.format.rawValue].string
+        
+        self.updatedAt = json[Key.updatedAt.rawValue].double
+        self.createdAt = json[Key.createdAt.rawValue].double
+        
+        self.linkedIDs = json[Key.refs.rawValue].arrayValue.compactMap { $0[Key.id.rawValue].int }
+        self.inheritedLinkedIDs = json[Key.pathRefs.rawValue].arrayValue.compactMap { $0[Key.id.rawValue].int }
+        self.aliasIDs = json[Key.alias.rawValue].arrayValue.compactMap { $0[Key.id.rawValue].int }
+    }
+    
+    func isPage() -> Bool {
+        return pageID == nil && parentID == nil
+    }
+    
     static func == (lhs: Block, rhs: Block) -> Bool {
         return lhs.id == rhs.id
     }
     
     func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
+        hasher.combine(uuid)
     }
-    
-    enum Key: String {
-        case id
-        case content
-        case children
-        case properties
-    }
-    
-    let id: String
-    let content: String
-    private(set) var children: [Block] = []
-    
-    let index: Int
-    let properties: Properties
-    let parent: Block?
-    let page: Page
-    
-    init(_ json: JSON, index: Int, page: Page, parent: Block?) throws {
-        guard let id = json[Key.id.rawValue].string,
-              let content = json[Key.content.rawValue].string
-        else { throw CompilerError.parsingError }
-        
-        self.id = id
-        self.content = content
-        
-        self.properties = json[Key.properties.rawValue]
-        self.index = index
-        
-        self.parent = parent
-        self.page = page
-        
-        self.children = json[Key.children.rawValue].enumerated().compactMap { try? Block($0.element.1, index: $0.offset + 1, page: page, parent: self) } //can't use zero for weight in hugo
-    }
-    
-    func allDescendents() -> [Block] {
-        return children + children.flatMap { $0.allDescendents() }
-    }
-    
-    func referrers(allBlocks: [String: Block]) -> [Block] {
-        return allBlocks.values.filter { $0.content.contains("((\(self.id)))") }
-    }
-    
+
 //    private func replaceBlockReference(content: String, allPages: [Page], allBlocks: [Block]) -> String {
 //        guard content.contains("((") else { return content }
 //
@@ -132,140 +421,10 @@ class Block: BlockType, Equatable, Hashable {
 //            return content.replacingOccurrences(of: "((\(referredBlock.id)))", with: "[\(referredBlock.content)]" + "({{< relref \"\(try! referredBlock.page(allPages: allPages).name).md#\(referredBlock.id)\" >}})", options: .literal, range: nil)
 //        }
 //    }
-    
-    private func getAncestors() -> [Block] {
-        guard let parent = parent else { return [] }
-        
-        return parent.getAncestors() + [parent]
-    }
-    
-    func isPageProperties() -> Bool {
-        guard index == 1, let firstLine = self.content.split(separator: "\n").first else { return false }
-        return firstLine.contains("::") || firstLine == "---"
-    }
-    
-    private func hugoModifiedContent() -> String {
-        return content
-            .replacingOccurrences(of: "(../assets/", with: "(/assets/")
-    }
-    
-    func file() -> String {
-        let content = hugoModifiedContent()
-        let headerContent = (self.properties.map { "\($0.0): \($0.1)\n"} + ["logseq-type: block\nweight: \(index)\n"]).joined(separator: "")
-        
-        let trimmedContent: String
-        let maxCharacterCount = 100
-        
-        if !content.contains("\n") && content.count < maxCharacterCount {
-            trimmedContent = content
-        } else {
-            let firstLine = content.prefix(while: { $0 != "\n" })
-            if firstLine.count > maxCharacterCount {
-                trimmedContent = firstLine.prefix(maxCharacterCount-3).split(separator: " ").dropLast().joined(separator: " ") + "..."
-            } else {
-                trimmedContent = String(firstLine)
-            }
-            
-        }
-        
-        return "---\n" + "title: \"\(trimmedContent)\"\n" + headerContent + "---\n" + content
-    }
-    
-    func createSection(inDirectory directory: URL) {
-        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-
-        let blockDirectory = directory.appendingPathComponent(id)
-        try! FileManager.default.createDirectory(at: blockDirectory, withIntermediateDirectories: true)
-        try! file().write(to: blockDirectory.appendingPathComponent(indexFile), atomically: true, encoding: .utf8)
-        children.forEach { $0.createSection(inDirectory: blockDirectory) }
-    }
-}
-
-class Page: BlockType, Equatable {
-    static func == (lhs: Page, rhs: Page) -> Bool {
-        return lhs.id == rhs.id
-    }
-    
-    
-    enum Key: String {
-        case id
-        case pageName = "page-name"
-        case children
-        case properties
-    }
-    
-    let id: String
-    let name: String
-    private(set) var children: [Block] = []
-    
-    let properties: Properties
-    
-    init(_ json: JSON) throws {
-        guard let id = json[Key.id.rawValue].string,
-              let name = json[Key.pageName.rawValue].string
-        else { throw CompilerError.parsingError }
-        
-        self.id = id
-        self.name = name
-        self.properties = json[Key.properties.rawValue]
-        
-        self.children = json[Key.children.rawValue].enumerated().compactMap { try? Block($0.element.1, index: $0.offset + 1, page: self, parent: nil) } //can't use zero for weight in hugo
-    }
-    
-    func allDescendents() -> [Block] {
-        return children + self.children.flatMap { $0.allDescendents() }
-    }
-    
-    func referrers(allBlocks: [String: Block]) -> [Block] {
-        return allBlocks.values.filter { $0.content.contains("[[\(self.name)]]")}
-    }
-    
-    func namespace() -> String? {
-        let prefix = name.split(separator: "/").dropLast().joined(separator: "/")
-        if prefix.count > 0 { return prefix } else { return nil }
-    }
-    
-    func yamlHeader() -> String {
-        let headerContent = (self.properties.map { "\($0.0): \($0.1)\n"} + ["logseq-type: page\n"]).joined(separator: "")
-        return "---\n" + "title: \"\(name)\"\n" + headerContent + "---"
-    }
-    
-    func sectionFile() -> String {
-        return yamlHeader() + "\n" + name
-    }
-    
-    func createSection(inDirectory directory: URL) {
-        let pageDirectory = directory.appendingPathComponent(name, isDirectory: true)
-        try! FileManager.default.createDirectory(at: pageDirectory, withIntermediateDirectories: true, attributes: nil)
-        try! sectionFile().write(to: pageDirectory.appendingPathComponent(indexFile), atomically: true, encoding: .utf8)
-        
-        children
-            .filter { !$0.isPageProperties() }
-            .forEach { $0.createSection(inDirectory: pageDirectory) }
-    }
-}
-
-struct Relationship {
-    
-    let relation: Page
-    let object: [Block]
 }
 
 
-extension Block {
-    struct Links {
-        let referrers: [Block]
-        let relationships: [Relationship]
-    }
-    
-}
-
-
-
-
-
-
-//compiler stuff
+//testing stuff
 
 func getDownloadsDirectory() -> URL {
     let paths = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)
@@ -277,52 +436,13 @@ func getTestDirectory() -> URL {
     return paths[0].appendingPathComponent("compiled-graph-test", isDirectory: true)
 }
 
-func emptyDirectory(_ directory: URL) throws {
-    try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).forEach { url in
-        try FileManager.default.removeItem(at: url)
-    }
-}
-
-func copyContents(from: URL, to: URL) throws {
-    try FileManager.default.contentsOfDirectory(at: from, includingPropertiesForKeys: nil).forEach { url in
-        try FileManager.default.copyItem(at: url, to: to.appendingPathComponent(url.lastPathComponent))
-    }
-}
-
 let originDirectory = getDownloadsDirectory().appendingPathComponent("export", isDirectory: true)
 let assetsOrigin = originDirectory.appendingPathComponent("assets", isDirectory: true)
-let graphString = try! String(contentsOf: originDirectory.appendingPathComponent("graph.json"))
 
-let cleanedGraphString = graphString.replacingOccurrences(of: "\n", with: "\\n")
-let graphJSON = try! JSON(data: cleanedGraphString.data(using: .utf8)!)
-
-
-let notesDestination = getTestDirectory().appendingPathComponent("notes", isDirectory: true)
-let assetsDestination = getTestDirectory().appendingPathComponent("assets", isDirectory: true)
-
-
-
-
-//logic follows...
-
-
-
-//create a set of extra data to be included alongside blocks
-
-
-
-
-try! emptyDirectory(getTestDirectory())
-
-try! FileManager.default.createDirectory(at: notesDestination, withIntermediateDirectories: true)
-allPages.forEach { $0.createSection(inDirectory: notesDestination) }
-
-try! FileManager.default.createDirectory(at: assetsDestination, withIntermediateDirectories: true)
-try! copyContents(from: assetsOrigin, to: assetsDestination)
-
-
-
-//filter for public last, in order to decide what types of links should be visible
+Graph(jsonPath: originDirectory.appendingPathComponent("graph.json"),
+      assetsFolder: originDirectory.appendingPathComponent("assets", isDirectory: true),
+      destinationFolder: getTestDirectory())
+    .exportForHugo()
 
 
 
