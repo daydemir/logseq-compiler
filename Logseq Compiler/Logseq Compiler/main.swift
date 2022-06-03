@@ -157,7 +157,6 @@ extension HugoBlock {
         var dict: [String: Any] = [:]
         
         if backlinkPaths.values.count > 0 {
-            print(backlinkPaths.values)
             dict["backlinks"] = "\n - " + backlinkPaths.values.map {  "\"\($0)\"\n" }.joined(separator:" - ")
         }
         
@@ -169,11 +168,15 @@ extension HugoBlock {
             dict["namespace"] = namespacePath
         }
         
+        if linkPaths.values.count > 0 {
+            dict["links"] = "\n - " + linkPaths.values.map {  "\"\($0)\"\n" }.joined(separator:" - ")
+        }
+        
         return JSON(dict)
     }
     
     private func file() -> String {
-        return hugoYAML() + (hugoModifiedContent() ?? "")
+        return hugoYAML() + hugoModifiedContent(content: block.content, readable: false)
     }
     
     private func hugoYAML() -> String {
@@ -181,29 +184,40 @@ extension HugoBlock {
         return "---\n" + "title: \"\(readableName() ?? "Untitled")\"\n" + headerContent + "---\n"
     }
     
-    //in content need to convert:
-    //embeds, links, youtube, twitter, assets link, etc
-    func hugoModifiedContent() -> String? {
-        guard let content = block.content, content.count > 0 else { return nil }
-        
-        
+    //TODO: youtube, twitter
+    func hugoModifiedContent(content: String?, readable: Bool) -> String {
+        guard let content = content, content.count > 0 else { return "" }
         
         var updatedContent = content.replacingOccurrences(of: "(../assets/", with: "(/assets/")
         
-        
         linkPaths.forEach { (linkedBlock, path) in
-            if linkedBlock.isPage() {
-                //embedded page
-                
-                //inline alias
-                
-                //normal page link
-                
+            var foundTheLink = false
+            if linkedBlock.isPage(), let name = linkedBlock.originalName ?? linkedBlock.name {
+                LinkFinder.pageLinkChecks(name: name, path: path).forEach  { linkFinder in
+                    updatedContent = linkFinder.makeContentHugoFriendly(updatedContent, noLinks: readable)
+                    foundTheLink = true
+                }
             } else {
-                //embedded block
-                updatedContent = LinkFinder.blockEmbed(forBlock: linkedBlock).makeContentHugoFriendly(updatedContent)
-                
-                //normal block reference
+                //block
+                let blockContent = linkedBlock.linkedIDs.count > 0 ? hugoModifiedContent(content: linkedBlock.content, readable: readable) : (linkedBlock.content ?? "")
+                LinkFinder.blockLinkChecks(uuid: linkedBlock.uuid, content: blockContent, path: path).forEach { linkFinder in
+                    updatedContent = linkFinder.makeContentHugoFriendly(updatedContent, noLinks: readable)
+                    foundTheLink = true
+                    if linkedBlock.uuid == "6297c201-d5b2-449b-b9b9-7c0b0dd8421d" {
+                        print("this guy")
+                        print(blockContent)
+                        print(updatedContent)
+                        print(readable)
+                        print("---")
+                    }
+                }
+            }
+            
+            if !foundTheLink {
+                print("couldn't find a link here")
+                print("readable " + readable.description)
+                print("block -> " + content)
+                print("linked block -> " + linkedBlock.uuid)
             }
             
         }
@@ -213,7 +227,8 @@ extension HugoBlock {
     func readableName() -> String? {
         if block.isPage() {
             return block.originalName ?? block.name
-        } else if let content = hugoModifiedContent() {
+        } else {
+            let content = hugoModifiedContent(content: block.content, readable: true)
             //use trimmed content since blocks don't have titles
             let trimmedContent: String
             let maxCharacterCount = 100
@@ -230,8 +245,6 @@ extension HugoBlock {
             }
             
             return trimmedContent
-        } else {
-            return nil
         }
     }
 }
@@ -254,7 +267,12 @@ extension Block {
         } else {
             component = uuid
         }
-        return try! component.convertedToSlug()
+        
+        do {
+            return try component.convertedToSlug()
+        } catch {
+            return component.addingPercentEncoding(withAllowedCharacters: []) ?? component
+        }
     }
     
 }
@@ -356,44 +374,102 @@ struct HugoBlock: Hashable {
 }
 
 enum LinkFinder {
-    case blockEmbed(forBlock: Block)
     
+    case pageEmbed(name: String, path: String)
+    case pageAlias(name: String, path: String)
+    case pageReference(name: String, path: String)
     
-    func shortcodeName() -> String {
-        switch self {
-        case .blockEmbed:
-            return "block-embed"
-        }
+    case blockEmbed(uuid: String, content: String, path: String)
+    case blockAlias(uuid: String, content: String, path: String)
+    case blockReference(uuid: String, content: String, path: String)
+    
+    static func pageLinkChecks(name: String, path: String) -> [LinkFinder] {
+        //order matters
+        return [
+            LinkFinder.pageEmbed(name: name, path: path),
+            LinkFinder.pageAlias(name: name, path: path),
+            LinkFinder.pageReference(name: name, path: path)
+        ]
+    }
+    
+    static func blockLinkChecks(uuid: String, content: String, path: String) -> [LinkFinder] {
+        //order matters
+        return [
+            LinkFinder.blockEmbed(uuid: uuid, content: content, path: path),
+            LinkFinder.blockAlias(uuid: uuid, content: content, path: path),
+            LinkFinder.blockReference(uuid: uuid, content: content, path: path)
+        ]
     }
     
     func pattern() -> String {
         switch self {
-        case .blockEmbed(let block):
-            return #"\{\{\s*\(\(\s*"# + block.uuid + #"\s*\)\)\}\}"#
-//            return #"{{embed\s*\(\(\s*(\Q"# + block.uuid + #"\E)\s*\)\)\s*}}"#
+        case .pageEmbed(let name, _):
+            return #"\{\{embed\s*\[\[\s*"# + name + #"\s*\]\]\s*\}\}"#
+        case .pageAlias(let name, _):
+            return #"\]\(\s*\[\[\s*"# + name + #"\s*\]\]s*\)"#
+        case .pageReference(let name, _):
+            return #"\[\[\s*"# + name + #"\s*\]\]"#
+            
+        case .blockEmbed(let uuid, _, _):
+            return #"\{\{embed\s*\(\(\s*"# + uuid + #"\s*\)\)\s*\}\}"#
+        case .blockAlias(let uuid, _, _):
+            return #"\]\(\s*\(\(\s*"# + uuid + #"\s*\)\)\s*\)"#
+        case .blockReference(let uuid, _, _):
+            return #"\(\(\s*"# + uuid + #"\s*\)\)"#
+        }
+    }
+    
+    func readable() -> String { //TODO: add a version that adds plain links
+        switch self {
+        case .pageEmbed(let name, _):
+            return "[[\(name)]]"
+        case .pageAlias:
+            return "]"
+        case .pageReference(let name, _):
+            return "[[\(name)]]"
+            
+            
+        case .blockEmbed(_, let content, _):
+            return content
+        case .blockAlias:
+            return "]"
+        case .blockReference(_, let content, _):
+            return content
         }
     }
     
     func hugoFriendlyLink() -> String {
         switch self {
-        case .blockEmbed(let block):
-            return "{{< \(shortcodeName()) \(block.uuid) >}}"
+        case .pageEmbed(_, let path):
+            return "{{< links/page-embed \"\(path)\" >}}"
+        case .pageAlias(_, let path):
+            return "](\(path))"
+        case .pageReference(let name, let path):
+            return "[\(name)](\(path))"
+            
+            
+        case .blockEmbed(_, _, let path):
+            return "{{< links/block-embed \"\(path)\" >}}"
+        case .blockAlias(_, _, let path):
+            return "](\(path))"
+        case .blockReference(_, let content, let path):
+            return "[\(content)](\(path))"
         }
     }
     
     func ranges(inContent content: String) -> [NSRange] {
-        let regex = try! NSRegularExpression(pattern: self.pattern())
+        let regex = try! NSRegularExpression(pattern: self.pattern(), options: .caseInsensitive)
         return regex.matches(in: content, options: .reportCompletion, range: NSRange(content.startIndex..<content.endIndex, in: content)).map { (result: NSTextCheckingResult) in
-            print("found " + pattern())
             return result.range
         }
     }
     
-    func makeContentHugoFriendly(_ content: String) -> String {
+    func makeContentHugoFriendly(_ content: String, noLinks: Bool) -> String {
         var updatedContent = content as NSString
         
         ranges(inContent: content).forEach { range in
-            updatedContent = updatedContent.replacingCharacters(in: range, with: hugoFriendlyLink()) as NSString
+            let replacement = noLinks ? readable() : hugoFriendlyLink()
+            updatedContent = updatedContent.replacingCharacters(in: range, with: replacement) as NSString
         }
         
         return updatedContent as String
@@ -499,7 +575,7 @@ func getDownloadsDirectory() -> URL {
 }
 
 func getTestDirectory() -> URL {
-    let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+    let paths = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)
     return paths[0].appendingPathComponent("compiled-graph-test", isDirectory: true)
 }
 
