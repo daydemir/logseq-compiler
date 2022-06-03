@@ -18,7 +18,7 @@ typealias Properties = JSON
 
 struct Graph {
     
-    let allContent: Set<SuperBlock>
+    var allContent: [HugoBlock]
     
     let assetsFolder: URL
     let destinationFolder: URL
@@ -57,23 +57,63 @@ struct Graph {
         let json = try! JSON(data: String(contentsOf: graphJSONPath).data(using: .utf8)!)
         
         let blocks = Set(json.arrayValue.map { try! Block($0) })
-        
+
         self.blockPaths = blocks.reduce([Block: String]()) { paths, block in
             var paths = paths
             paths[block] = blocks.allAncestors(forBlock: block).map { $0.pathComponent() }.joined(separator: "/")
             return paths
         }
         
-        self.allContent = Set(blocks.map { block in
-            return SuperBlock(block: block,
-                              siblingIndex: blocks.siblings(forBlock: block).leftSiblings.count + 1,
-                              parent: blockPaths[blocks.parent(forBlock: block)],
-                              page: blockPaths[blocks.page(forBlock: block)],
-                              namespace: blockPaths[blocks.namespace(forBlock: block)],
-                              backlinks: blocks.backlinks(forBlock: block).compactMap { blockPaths[$0] },
-                              links: blocks.links(forBlock: block).compactMap { blockPaths[$0] },
-                              alias: blocks.aliases(forBlock: block).compactMap { blockPaths[$0] })
-        })
+        self.allContent = Graph.convertBlocks(blocks, blockPaths: self.blockPaths)
+    }
+    
+    static func convertBlocks(_ blocks: Set<Block>, blockPaths: [Block?: String]) -> [HugoBlock] {
+        blocks.compactMap { block in
+            
+            guard let path = blockPaths[block] else { return nil }
+            
+            let parentTuple: (Block, String)?
+            if let parent = blocks.parent(forBlock: block), let parentPath = blockPaths[parent] {
+                parentTuple = (parent, parentPath)
+            } else {
+                parentTuple = nil
+            }
+            
+            let namespaceTuple: (Block, String)?
+            if let namespace = blocks.namespace(forBlock: block), let namespacePath = blockPaths[namespace] {
+                namespaceTuple = (namespace, namespacePath)
+            } else {
+                namespaceTuple = nil
+            }
+            
+            
+            let links = blocks.links(forBlock: block).reduce([Block: String]()) { dict, block in
+                var dict = dict
+                dict[block] = blockPaths[block]
+                return dict
+            }
+            
+            let backlinks = blocks.backlinks(forBlock: block).reduce([Block: String]()) { dict, block in
+                var dict = dict
+                dict[block] = blockPaths[block]
+                return dict
+            }
+            
+            let aliases = blocks.aliases(forBlock: block).reduce([Block: String]()) { dict, block in
+                var dict = dict
+                dict[block] = blockPaths[block]
+                return dict
+            }
+            
+            return HugoBlock(block: block,
+                             path: path,
+                             siblingIndex: blocks.siblings(forBlock: block).leftSiblings.count + 1,
+                             parentPath: parentTuple,
+                             namespacePath: namespaceTuple,
+                             linkPaths: links,
+                             backlinkPaths: backlinks,
+                             aliasPaths: aliases)
+        }
     }
     
     
@@ -104,6 +144,52 @@ struct Graph {
     private func copyContents(from: URL, to: URL) throws {
         try FileManager.default.contentsOfDirectory(at: from, includingPropertiesForKeys: nil).forEach { url in
             try FileManager.default.copyItem(at: url, to: to.appendingPathComponent(url.lastPathComponent))
+        }
+    }
+}
+
+extension Block {
+    
+    func showable() -> Bool {
+        let isNotPagePropertiesAndHasContent = !preblock && (content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").count > 0
+        return isPage() || isNotPagePropertiesAndHasContent
+    }
+    
+    func isPage() -> Bool {
+        return pageID == nil && parentID == nil
+    }
+    
+    func pathComponent() -> String {
+        if isPage() {
+            return originalName ?? name ?? "\(id)"
+        } else {
+            return uuid
+        }
+    }
+    
+    
+    func readableName() -> String? {
+        if isPage() {
+            return originalName ?? name
+        } else if let content = content {
+            //use trimmed content since blocks don't have titles
+            let trimmedContent: String
+            let maxCharacterCount = 100
+            
+            if !content.contains("\n") && content.count < maxCharacterCount {
+                trimmedContent = content
+            } else {
+                let firstLine = content.prefix(while: { $0 != "\n" })
+                if firstLine.count > maxCharacterCount {
+                    trimmedContent = firstLine.prefix(maxCharacterCount-3).split(separator: " ").dropLast().joined(separator: " ") + "..."
+                } else {
+                    trimmedContent = String(firstLine)
+                }
+            }
+            
+            return trimmedContent
+        } else {
+            return nil
         }
     }
 }
@@ -166,29 +252,28 @@ extension Set where Element == Block {
         return (leftSiblings: leftSiblings, rightSiblings: rightSiblings)
     }
 }
-
-extension Set where Element == SuperBlock {
-    func children(forBlock superblock: SuperBlock) -> [SuperBlock] {
-        return filter { $0.parent == superblock.block }
+extension Array where Element == HugoBlock {
+    func children(forBlock superblock: HugoBlock) -> [HugoBlock] {
+        return filter { $0.parentPath?.0 == superblock.block }
     }
 }
 
 
-struct SuperBlock: Hashable {
+struct HugoBlock: Hashable {
     
     let block: Block
+    let path: String
     let siblingIndex: Int
     
-    let parent: String?
-    let page: String?
-    let namespace: String?
+    let parentPath: (Block, String)?
+    let namespacePath: (Block, String)?
     
-    let backlinks: [String]
-    let links: [String]
-    let alias: [String]
+    let linkPaths: [Block: String]
+    let backlinkPaths: [Block: String]
+    let aliasPaths: [Block: String]
     
-    func createSection(inDirectory directory: URL, superblocks: Set<SuperBlock>) {
-        guard showable() else { return }
+    func createSection(inDirectory directory: URL, superblocks: [HugoBlock]) {
+        guard block.showable() else { return }
 
         let blockDirectory = directory.appendingPathComponent(block.pathComponent())
         try! FileManager.default.createDirectory(at: blockDirectory, withIntermediateDirectories: true)
@@ -200,39 +285,9 @@ struct SuperBlock: Hashable {
         return hugoYAML() + hugoModifiedContent()
     }
     
-    private func showable() -> Bool {
-        let isNotPagePropertiesAndHasContent = !block.preblock && (block.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").count > 0
-        return block.isPage() || isNotPagePropertiesAndHasContent
-    }
-    
     private func hugoYAML() -> String {
         let headerContent = (self.block.properties.map { "\($0.0): \($0.1)\n"} + ["logseq-type: \(block.isPage() ? "page" : "block")\nweight: \(siblingIndex)\n"]).joined(separator: "")
-        return "---\n" + "title: \"\(blockTitle() ?? "Untitled")\"\n" + headerContent + "---\n"
-    }
-    
-    private func blockTitle() -> String? {
-        if block.isPage() {
-            return block.originalName ?? block.name
-        } else if let content = block.content {
-            //use trimmed content since blocks don't have titles
-            let trimmedContent: String
-            let maxCharacterCount = 100
-            
-            if !content.contains("\n") && content.count < maxCharacterCount {
-                trimmedContent = content
-            } else {
-                let firstLine = content.prefix(while: { $0 != "\n" })
-                if firstLine.count > maxCharacterCount {
-                    trimmedContent = firstLine.prefix(maxCharacterCount-3).split(separator: " ").dropLast().joined(separator: " ") + "..."
-                } else {
-                    trimmedContent = String(firstLine)
-                }
-            }
-            
-            return trimmedContent
-        } else {
-            return nil
-        }
+        return "---\n" + "title: \"\(block.readableName() ?? "Untitled")\"\n" + headerContent + "---\n"
     }
     
     //in content need to convert:
@@ -245,7 +300,7 @@ struct SuperBlock: Hashable {
         var updatedContent = content.replacingOccurrences(of: "(../assets/", with: "(/assets/")
         
         
-        links.forEach { linkedBlock in
+        linkPaths.forEach { (linkedBlock, path) in
             if linkedBlock.isPage() {
                 //embedded page
                 
@@ -262,6 +317,11 @@ struct SuperBlock: Hashable {
             
         }
         return updatedContent
+    }
+    
+    
+    static func == (lhs: HugoBlock, rhs: HugoBlock) -> Bool {
+        return lhs.block == rhs.block
     }
     
     func hash(into hasher: inout Hasher) {
@@ -395,18 +455,6 @@ struct Block: Hashable {
         self.aliasIDs = json[Key.alias.rawValue].arrayValue.compactMap { $0[Key.id.rawValue].int }
     }
     
-    func isPage() -> Bool {
-        return pageID == nil && parentID == nil
-    }
-    
-    func pathComponent() -> String {
-        if isPage() {
-            return originalName ?? name ?? "\(id)"
-        } else {
-            return uuid
-        }
-    }
-    
     static func == (lhs: Block, rhs: Block) -> Bool {
         return lhs.id == rhs.id
     }
@@ -414,24 +462,6 @@ struct Block: Hashable {
     func hash(into hasher: inout Hasher) {
         hasher.combine(uuid)
     }
-
-//    private func replaceBlockReference(content: String, allPages: [Page], allBlocks: [Block]) -> String {
-//        guard content.contains("((") else { return content }
-//
-//        print(content.contains("((62957c3c-6fd4-4ee2-bcf1-c0b4e62a2860))"))
-//        print(allBlocks.map { $0.id })
-//
-//        let referredBlocks = allBlocks.filter { content.contains("((\($0.id)))")}
-//
-//        print("all block contains?")
-//        print(allBlocks.contains(where: { $0.id == "62957c3c-6fd4-4ee2-bcf1-c0b4e62a2860"}))
-//        print(referredBlocks.map { $0.content })
-//
-//        return referredBlocks.reduce(content) { content, referredBlock in
-//            print(content)
-//            return content.replacingOccurrences(of: "((\(referredBlock.id)))", with: "[\(referredBlock.content)]" + "({{< relref \"\(try! referredBlock.page(allPages: allPages).name).md#\(referredBlock.id)\" >}})", options: .literal, range: nil)
-//        }
-//    }
 }
 
 
