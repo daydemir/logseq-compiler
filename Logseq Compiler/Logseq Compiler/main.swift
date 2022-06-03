@@ -191,33 +191,16 @@ extension HugoBlock {
         var updatedContent = content.replacingOccurrences(of: "(../assets/", with: "(/assets/")
         
         linkPaths.forEach { (linkedBlock, path) in
-            var foundTheLink = false
             if linkedBlock.isPage(), let name = linkedBlock.originalName ?? linkedBlock.name {
                 LinkFinder.pageLinkChecks(name: name, path: path).forEach  { linkFinder in
                     updatedContent = linkFinder.makeContentHugoFriendly(updatedContent, noLinks: readable)
-                    foundTheLink = true
                 }
             } else {
                 //block
                 let blockContent = linkedBlock.linkedIDs.count > 0 ? hugoModifiedContent(content: linkedBlock.content, readable: readable) : (linkedBlock.content ?? "")
                 LinkFinder.blockLinkChecks(uuid: linkedBlock.uuid, content: blockContent, path: path).forEach { linkFinder in
                     updatedContent = linkFinder.makeContentHugoFriendly(updatedContent, noLinks: readable)
-                    foundTheLink = true
-                    if linkedBlock.uuid == "6297c201-d5b2-449b-b9b9-7c0b0dd8421d" {
-                        print("this guy")
-                        print(blockContent)
-                        print(updatedContent)
-                        print(readable)
-                        print("---")
-                    }
                 }
-            }
-            
-            if !foundTheLink {
-                print("couldn't find a link here")
-                print("readable " + readable.description)
-                print("block -> " + content)
-                print("linked block -> " + linkedBlock.uuid)
             }
             
         }
