@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftyJSON
+import SwiftSlug
 
 
 enum CompilerError: Error {
@@ -15,6 +16,8 @@ enum CompilerError: Error {
 
 let indexFile = "_index.md"
 typealias Properties = JSON
+
+let notesFolder = "notes"
 
 struct Graph {
     
@@ -60,7 +63,7 @@ struct Graph {
 
         self.blockPaths = blocks.reduce([Block: String]()) { paths, block in
             var paths = paths
-            paths[block] = blocks.allAncestors(forBlock: block).map { $0.pathComponent() }.joined(separator: "/")
+            paths[block] = ([notesFolder] + blocks.allAncestors(forBlock: block).map { $0.pathComponent() }).joined(separator: "/")
             return paths
         }
         
@@ -124,7 +127,7 @@ struct Graph {
         
         
         //create sections for blocks
-        let notesDestination = getTestDirectory().appendingPathComponent("notes", isDirectory: true)
+        let notesDestination = getTestDirectory().appendingPathComponent(notesFolder, isDirectory: true)
         try! FileManager.default.createDirectory(at: notesDestination, withIntermediateDirectories: true)
         allContent.filter { $0.block.isPage();  }
             .forEach { $0.createSection(inDirectory: notesDestination, superblocks: allContent)}
@@ -150,12 +153,31 @@ struct Graph {
 
 extension HugoBlock {
     
+    func hugoProperties() -> JSON {
+        var dict: [String: Any] = [:]
+        
+        if backlinkPaths.values.count > 0 {
+            print(backlinkPaths.values)
+            dict["backlinks"] = "\n - " + backlinkPaths.values.map {  "\"\($0)\"\n" }.joined(separator:" - ")
+        }
+        
+        if aliasPaths.values.count > 0 {
+            dict["aliases"] = aliasPaths.values
+        }
+        
+        if let namespacePath = namespacePath?.1 {
+            dict["namespace"] = namespacePath
+        }
+        
+        return JSON(dict)
+    }
+    
     private func file() -> String {
         return hugoYAML() + (hugoModifiedContent() ?? "")
     }
     
     private func hugoYAML() -> String {
-        let headerContent = (self.block.properties.map { "\($0.0): \($0.1)\n"} + ["logseq-type: \(block.isPage() ? "page" : "block")\nweight: \(siblingIndex)\n"]).joined(separator: "")
+        let headerContent = (block.properties.map { "\($0.0): \($0.1)\n"} + hugoProperties().map { "\($0.0): \($0.1)\n" } + ["logseq-type: \(block.isPage() ? "page" : "block")\nweight: \(siblingIndex)\n"]).joined(separator: "")
         return "---\n" + "title: \"\(readableName() ?? "Untitled")\"\n" + headerContent + "---\n"
     }
     
@@ -226,11 +248,13 @@ extension Block {
     }
     
     func pathComponent() -> String {
+        let component: String
         if isPage() {
-            return originalName ?? name ?? "\(id)"
+            component = (name ?? originalName ?? "\(id)")
         } else {
-            return uuid
+            component = uuid
         }
+        return try! component.convertedToSlug()
     }
     
 }

@@ -1,6 +1,15 @@
 {
   "pins" : [
     {
+      "identity" : "swiftslug",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/twostraws/SwiftSlug",
+      "state" : {
+        "revision" : "c9a291c4734811dbe6873d9ab2d2612468976dd5",
+        "version" : "0.3.0"
+      }
+    },
+    {
       "identity" : "swiftyjson",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SwiftyJSON/SwiftyJSON.git",

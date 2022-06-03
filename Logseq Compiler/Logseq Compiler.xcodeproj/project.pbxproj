@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2243BB6B2849DA3D00262DE7 /* SwiftSlug in Frameworks */ = {isa = PBXBuildFile; productRef = 2243BB6A2849DA3D00262DE7 /* SwiftSlug */; };
 		2263CCF82845B20100BD3DF0 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2263CCF72845B20100BD3DF0 /* main.swift */; };
 		2263CD022845B58A00BD3DF0 /* SwiftyJSON in Frameworks */ = {isa = PBXBuildFile; productRef = 2263CD012845B58A00BD3DF0 /* SwiftyJSON */; };
 /* End PBXBuildFile section */
@@ -34,6 +35,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2263CD022845B58A00BD3DF0 /* SwiftyJSON in Frameworks */,
+				2243BB6B2849DA3D00262DE7 /* SwiftSlug in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -82,6 +84,7 @@
 			name = "Logseq Compiler";
 			packageProductDependencies = (
 				2263CD012845B58A00BD3DF0 /* SwiftyJSON */,
+				2243BB6A2849DA3D00262DE7 /* SwiftSlug */,
 			);
 			productName = "Logseq Compiler";
 			productReference = 2263CCF42845B20100BD3DF0 /* Logseq Compiler */;
@@ -113,6 +116,7 @@
 			mainGroup = 2263CCEB2845B20100BD3DF0;
 			packageReferences = (
 				2263CD002845B58A00BD3DF0 /* XCRemoteSwiftPackageReference "SwiftyJSON" */,
+				2243BB692849DA3D00262DE7 /* XCRemoteSwiftPackageReference "SwiftSlug" */,
 			);
 			productRefGroup = 2263CCF52845B20100BD3DF0 /* Products */;
 			projectDirPath = "";
@@ -294,6 +298,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		2243BB692849DA3D00262DE7 /* XCRemoteSwiftPackageReference "SwiftSlug" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/twostraws/SwiftSlug";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.3.0;
+			};
+		};
 		2263CD002845B58A00BD3DF0 /* XCRemoteSwiftPackageReference "SwiftyJSON" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/SwiftyJSON/SwiftyJSON.git";
@@ -305,6 +317,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		2243BB6A2849DA3D00262DE7 /* SwiftSlug */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2243BB692849DA3D00262DE7 /* XCRemoteSwiftPackageReference "SwiftSlug" */;
+			productName = SwiftSlug;
+		};
 		2263CD012845B58A00BD3DF0 /* SwiftyJSON */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 2263CD002845B58A00BD3DF0 /* XCRemoteSwiftPackageReference "SwiftyJSON" */;
