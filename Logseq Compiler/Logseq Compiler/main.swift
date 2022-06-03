@@ -23,6 +23,8 @@ struct Graph {
     let assetsFolder: URL
     let destinationFolder: URL
     
+    let blockPaths: [Block? : String]
+    
     init(jsonPath graphJSONPath: URL, assetsFolder: URL, destinationFolder: URL) {
         //https://github.com/logseq/logseq/blob/master/deps/graph-parser/src/logseq/graph_parser/db/schema.cljs
         
@@ -56,15 +58,21 @@ struct Graph {
         
         let blocks = Set(json.arrayValue.map { try! Block($0) })
         
+        self.blockPaths = blocks.reduce([Block: String]()) { paths, block in
+            var paths = paths
+            paths[block] = blocks.allAncestors(forBlock: block).map { $0.pathComponent() }.joined(separator: "/")
+            return paths
+        }
+        
         self.allContent = Set(blocks.map { block in
             return SuperBlock(block: block,
-                       siblingIndex: blocks.siblings(forBlock: block).leftSiblings.count + 1,
-                       parent: blocks.parent(forBlock: block),
-                       page: blocks.page(forBlock: block),
-                       namespace: blocks.namespace(forBlock: block),
-                       backlinks: blocks.backlinks(forBlock: block),
-                       links: blocks.links(forBlock: block),
-                       alias: blocks.aliases(forBlock: block))
+                              siblingIndex: blocks.siblings(forBlock: block).leftSiblings.count + 1,
+                              parent: blockPaths[blocks.parent(forBlock: block)],
+                              page: blockPaths[blocks.page(forBlock: block)],
+                              namespace: blockPaths[blocks.namespace(forBlock: block)],
+                              backlinks: blocks.backlinks(forBlock: block).compactMap { blockPaths[$0] },
+                              links: blocks.links(forBlock: block).compactMap { blockPaths[$0] },
+                              alias: blocks.aliases(forBlock: block).compactMap { blockPaths[$0] })
         })
     }
     
@@ -101,7 +109,11 @@ struct Graph {
 }
 
 extension Set where Element == Block {
-
+    
+    func allAncestors(forBlock block: Block) -> [Block] {
+        guard let parent = self.parent(forBlock: block) else { return [block] }
+        return self.allAncestors(forBlock: parent) + [block]
+    }
     
     func parent(forBlock block: Block) -> Block? {
         guard let parentID = block.parentID else { return nil }
@@ -167,30 +179,21 @@ struct SuperBlock: Hashable {
     let block: Block
     let siblingIndex: Int
     
-    let parent: Block?
-    let page: Block?
-    let namespace: Block?
+    let parent: String?
+    let page: String?
+    let namespace: String?
     
-    let backlinks: [Block]
-    let links: [Block]
-    let alias: [Block]
-    
+    let backlinks: [String]
+    let links: [String]
+    let alias: [String]
     
     func createSection(inDirectory directory: URL, superblocks: Set<SuperBlock>) {
         guard showable() else { return }
 
-        let blockDirectory = directory.appendingPathComponent(pathName())
+        let blockDirectory = directory.appendingPathComponent(block.pathComponent())
         try! FileManager.default.createDirectory(at: blockDirectory, withIntermediateDirectories: true)
         try! file().write(to: blockDirectory.appendingPathComponent(indexFile), atomically: true, encoding: .utf8)
         superblocks.children(forBlock: self).forEach { $0.createSection(inDirectory: blockDirectory, superblocks: superblocks) }
-    }
-    
-    func pathName() -> String {
-        if block.isPage() {
-            return block.originalName ?? block.name ?? "\(block.id)"
-        } else {
-            return block.uuid
-        }
     }
     
     private func file() -> String {
@@ -394,6 +397,14 @@ struct Block: Hashable {
     
     func isPage() -> Bool {
         return pageID == nil && parentID == nil
+    }
+    
+    func pathComponent() -> String {
+        if isPage() {
+            return originalName ?? name ?? "\(id)"
+        } else {
+            return uuid
+        }
     }
     
     static func == (lhs: Block, rhs: Block) -> Bool {
