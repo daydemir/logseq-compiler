@@ -1,14 +1,13 @@
 //
-//  main.swift
-//  Logseq Compiler
+//  File.swift
+//  
 //
-//  Created by Deniz Aydemir on 5/30/22.
+//  Created by Deniz Aydemir on 6/4/22.
 //
 
 import Foundation
 import SwiftyJSON
 import SwiftSlug
-
 
 enum CompilerError: Error {
     case parsingError
@@ -21,12 +20,13 @@ let notesFolder = "notes"
 
 struct Graph {
     
-    var allContent: [HugoBlock]
+    var allContent: [HugoBlock] = []
     
     let assetsFolder: URL
     let destinationFolder: URL
     
     let blockPaths: [Block? : String]
+    let blocks: Set<Block>
     
     init(jsonPath graphJSONPath: URL, assetsFolder: URL, destinationFolder: URL) {
         //https://github.com/logseq/logseq/blob/master/deps/graph-parser/src/logseq/graph_parser/db/schema.cljs
@@ -60,13 +60,15 @@ struct Graph {
         let json = try! JSON(data: String(contentsOf: graphJSONPath).data(using: .utf8)!)
         
         let blocks = Set(json.arrayValue.map { try! Block($0) })
-
-        self.blockPaths = blocks.reduce([Block: String]()) { paths, block in
+        self.blockPaths = blocks.reduce([Block: String]()) {
+            paths, block -> [Block: String] in
+            
             var paths = paths
             paths[block] = ([notesFolder] + blocks.allAncestors(forBlock: block).map { $0.pathComponent() }).joined(separator: "/")
             return paths
         }
         
+        self.blocks = blocks
         self.allContent = Graph.convertBlocks(blocks, blockPaths: self.blockPaths)
     }
     
@@ -125,12 +127,23 @@ struct Graph {
         //empty destination folder
         try! emptyDirectory(destinationFolder)
         
+        let publishableContent = allContent
+            .compactMap { $0.cleanForPublic(all: blocks) }
+        
+        let publishablePages = publishableContent
+            .filter { $0.block.isPage() }
+        
+        //put home directly in content folder
+        let homePage = publishablePages.first { $0.block.properties["home"].boolValue }
+        if let homePage = homePage {
+            homePage.createSection(inDirectory: destinationFolder, superblocks: publishableContent, blockFolder: false)
+        }
         
         //create sections for blocks
-        let notesDestination = getTestDirectory().appendingPathComponent(notesFolder, isDirectory: true)
+        let notesDestination = destinationFolder.appendingPathComponent(notesFolder, isDirectory: true)
         try! FileManager.default.createDirectory(at: notesDestination, withIntermediateDirectories: true)
-        allContent.filter { $0.block.isPage();  }
-            .forEach { $0.createSection(inDirectory: notesDestination, superblocks: allContent)}
+        publishablePages.filter { $0 != homePage }
+            .forEach { $0.createSection(inDirectory: notesDestination, superblocks: publishableContent)}
         
         //move assets
         let assetsDestination = destinationFolder.appendingPathComponent("assets", isDirectory: true)
@@ -234,6 +247,11 @@ extension HugoBlock {
 
 
 extension Block {
+    
+    func isPublic() -> Bool {
+        return properties["public"].boolValue
+    }
+    
     func showable() -> Bool {
         let isNotPagePropertiesAndHasContent = !preblock && (content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").count > 0
         return isPage() || isNotPagePropertiesAndHasContent
@@ -319,6 +337,7 @@ extension Set where Element == Block {
     }
 }
 extension Array where Element == HugoBlock {
+    
     func children(forBlock superblock: HugoBlock) -> [HugoBlock] {
         return filter { $0.parentPath?.0 == superblock.block }
     }
@@ -338,13 +357,33 @@ struct HugoBlock: Hashable {
     let backlinkPaths: [Block: String]
     let aliasPaths: [Block: String]
     
-    func createSection(inDirectory directory: URL, superblocks: [HugoBlock]) {
+    func createSection(inDirectory directory: URL, superblocks: [HugoBlock], blockFolder: Bool = true) {
         guard block.showable() else { return }
 
-        let blockDirectory = directory.appendingPathComponent(block.pathComponent())
+        let blockDirectory = blockFolder ? directory.appendingPathComponent(block.pathComponent()) : directory
         try! FileManager.default.createDirectory(at: blockDirectory, withIntermediateDirectories: true)
         try! file().write(to: blockDirectory.appendingPathComponent(indexFile), atomically: true, encoding: .utf8)
         superblocks.children(forBlock: self).forEach { $0.createSection(inDirectory: blockDirectory, superblocks: superblocks) }
+    }
+    
+    private func checkBlockIsPublic(block: Block, all: Set<Block>) -> Bool {
+        return (block.isPage() && block.isPublic()) || (all.page(forBlock: block)?.isPublic() ?? false)
+    }
+    
+    func cleanForPublic(all: Set<Block>) -> HugoBlock? {
+        guard checkBlockIsPublic(block: block, all: all) else {
+            return nil
+        }
+        
+        
+        return HugoBlock(block: block,
+                         path: path,
+                         siblingIndex: siblingIndex,
+                         parentPath: parentPath,
+                         namespacePath: namespacePath,
+                         linkPaths: linkPaths.filter { checkBlockIsPublic(block: $0.key, all: all) },
+                         backlinkPaths: backlinkPaths.filter { checkBlockIsPublic(block: $0.key, all: all) },
+                         aliasPaths: aliasPaths)
     }
     
     static func == (lhs: HugoBlock, rhs: HugoBlock) -> Bool {
@@ -423,7 +462,6 @@ enum LinkFinder {
     
     private func shortenedBlockContent(content: String) -> String {
         if let firstLine = content.split(separator: "\n").first {
-            print(firstLine)
             return String(firstLine)
         } else {
             return content
@@ -557,27 +595,3 @@ struct Block: Hashable {
         hasher.combine(uuid)
     }
 }
-
-
-//testing stuff
-
-func getDownloadsDirectory() -> URL {
-    let paths = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)
-    return paths[0]
-}
-
-func getTestDirectory() -> URL {
-    let paths = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)
-    return paths[0].appendingPathComponent("compiled-graph-test", isDirectory: true)
-}
-
-let originDirectory = getDownloadsDirectory().appendingPathComponent("export", isDirectory: true)
-let assetsOrigin = originDirectory.appendingPathComponent("assets", isDirectory: true)
-
-Graph(jsonPath: originDirectory.appendingPathComponent("graph.json"),
-      assetsFolder: originDirectory.appendingPathComponent("assets", isDirectory: true),
-      destinationFolder: getTestDirectory())
-    .exportForHugo()
-
-
-
