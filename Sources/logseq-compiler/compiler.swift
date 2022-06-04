@@ -145,11 +145,20 @@ struct Graph {
         publishablePages.filter { $0 != homePage }
             .forEach { $0.createSection(inDirectory: notesDestination, superblocks: publishableContent)}
         
-        //move assets
+        //move public assets
         let assetsDestination = destinationFolder.appendingPathComponent("assets", isDirectory: true)
         try! FileManager.default.createDirectory(at: assetsDestination, withIntermediateDirectories: true)
-        try! copyContents(from: assetsFolder, to: assetsDestination)
+        try! FileManager.default.contentsOfDirectory(at: assetsFolder, includingPropertiesForKeys: nil)
+            .filter { assetURL in
+                publishableContent.first { $0.block.content?.contains(assetURL.lastPathComponent) ?? false } != nil
+            }
+            .forEach { url in
+                try FileManager.default.copyItem(at: url, to: assetsDestination.appendingPathComponent(url.lastPathComponent))
+            }
     }
+    
+    
+    
     
     private func emptyDirectory(_ directory: URL) throws {
         try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).forEach { url in
@@ -157,11 +166,6 @@ struct Graph {
         }
     }
 
-    private func copyContents(from: URL, to: URL) throws {
-        try FileManager.default.contentsOfDirectory(at: from, includingPropertiesForKeys: nil).forEach { url in
-            try FileManager.default.copyItem(at: url, to: to.appendingPathComponent(url.lastPathComponent))
-        }
-    }
 }
 
 extension HugoBlock {
