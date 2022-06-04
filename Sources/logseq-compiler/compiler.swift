@@ -77,6 +77,13 @@ struct Graph {
             
             guard let path = blockPaths[block] else { return nil }
             
+            let pageTuple: (Block, String)?
+            if let page = blocks.page(forBlock: block), let pagePath = blockPaths[page] {
+                pageTuple = (page, pagePath)
+            } else {
+                pageTuple = nil
+            }
+            
             let parentTuple: (Block, String)?
             if let parent = blocks.parent(forBlock: block), let parentPath = blockPaths[parent] {
                 parentTuple = (parent, parentPath)
@@ -114,6 +121,7 @@ struct Graph {
                              path: path,
                              siblingIndex: blocks.siblings(forBlock: block).leftSiblings.count + 1,
                              parentPath: parentTuple,
+                             pagePath: pageTuple,
                              namespacePath: namespaceTuple,
                              linkPaths: links,
                              backlinkPaths: backlinks,
@@ -127,8 +135,8 @@ struct Graph {
         //empty destination folder
         try! emptyDirectory(destinationFolder)
         
-        let publishableContent = allContent
-            .compactMap { $0.cleanForPublic(all: blocks) }
+        let publishableContent = allContent.filter { $0.isPublic() }
+//            .compactMap { $0.cleanForPublic(all: blocks) }
         
         let publishablePages = publishableContent
             .filter { $0.block.isPage() }
@@ -355,6 +363,7 @@ struct HugoBlock: Hashable {
     let siblingIndex: Int
     
     let parentPath: (Block, String)?
+    let pagePath: (Block, String)?
     let namespacePath: (Block, String)?
     
     let linkPaths: [Block: String]
@@ -370,20 +379,27 @@ struct HugoBlock: Hashable {
         superblocks.children(forBlock: self).forEach { $0.createSection(inDirectory: blockDirectory, superblocks: superblocks) }
     }
     
+    func isPublic() -> Bool {
+        return block.isPublic() || (pagePath?.0.isPublic() ?? false)
+    }
+    
+    
+    //unused currently
     private func checkBlockIsPublic(block: Block, all: Set<Block>) -> Bool {
         return (block.isPage() && block.isPublic()) || (all.page(forBlock: block)?.isPublic() ?? false)
     }
     
+    //unused currently
     func cleanForPublic(all: Set<Block>) -> HugoBlock? {
         guard checkBlockIsPublic(block: block, all: all) else {
             return nil
         }
         
-        
         return HugoBlock(block: block,
                          path: path,
                          siblingIndex: siblingIndex,
                          parentPath: parentPath,
+                         pagePath: pagePath,
                          namespacePath: namespacePath,
                          linkPaths: linkPaths.filter { checkBlockIsPublic(block: $0.key, all: all) },
                          backlinkPaths: backlinkPaths.filter { checkBlockIsPublic(block: $0.key, all: all) },
@@ -570,8 +586,8 @@ struct Block: Hashable {
         self.id = id
         
         
-        self.name = json[Key.name.rawValue].string
-        self.originalName = json[Key.originalName.rawValue].string
+        self.name = json[Key.name.rawValue].string?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.originalName = json[Key.originalName.rawValue].string?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.content = json[Key.content.rawValue].string
         
         self.pageID = json[Key.pageID.rawValue][Key.id.rawValue].int
