@@ -26,10 +26,14 @@ struct LogseqCompiler: ParsableCommand {
         let assets = URL.init(fileURLWithPath: assetsFolderPath, isDirectory: true)
         let destination = URL.init(fileURLWithPath: destinationFolderPath, isDirectory: true)
         
-        Graph(jsonPath: json, assetsFolder: assets, destinationFolder: destination)
-            .exportForHugo()
-        
-        print("Done!")
+        do {
+            try Graph(jsonPath: json, assetsFolder: assets, destinationFolder: destination)
+                .exportForHugo()
+            
+            print("Done!")
+        } catch {
+            print(error.localizedDescription)
+        }
     }
 }
 
