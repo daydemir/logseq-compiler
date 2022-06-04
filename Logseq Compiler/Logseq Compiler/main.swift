@@ -417,6 +417,15 @@ enum LinkFinder {
         case .blockAlias:
             return "]"
         case .blockReference(_, let content, _):
+            return shortenedBlockContent(content: content)
+        }
+    }
+    
+    private func shortenedBlockContent(content: String) -> String {
+        if let firstLine = content.split(separator: "\n").first {
+            print(firstLine)
+            return String(firstLine)
+        } else {
             return content
         }
     }
@@ -436,7 +445,7 @@ enum LinkFinder {
         case .blockAlias(_, _, let path):
             return "](\(path))"
         case .blockReference(_, let content, let path):
-            return "[\(content)](\(path))"
+            return "[\(shortenedBlockContent(content: content))](\(path))"
         }
     }
     
