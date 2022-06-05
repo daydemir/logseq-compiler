@@ -310,8 +310,13 @@ extension HugoBlock {
                     updatedContent = linkFinder.makeContentHugoFriendly(updatedContent, noLinks: readable)
                 }
             }
-            
         }
+        
+//        if updatedContent == preLinkUpdatesContent && !linkPaths.isEmpty {
+//            print("Was not able to replace a link in this content: ")
+//            print(updatedContent)
+//        }
+        
         return updatedContent
     }
     
@@ -334,9 +339,13 @@ extension HugoBlock {
                     trimmedContent = String(firstLine)
                 }
             }
+            
+            let escapedHash = "\\#"
+            let unescapedHash = #"#"#
 
             return trimmedContent
                 .replacingOccurrences(of: "\"", with: #"\""#)
+                .replacingOccurrences(of: escapedHash, with: unescapedHash)
         }
     }
 }

@@ -38,11 +38,11 @@ enum LinkFinder {
     func pattern() -> String {
         switch self {
         case .pageEmbed(let name, _):
-            return #"\{\{embed\s*\[\[\s*"# + name + #"\s*\]\]\s*\}\}"#
+            return #"\{\{embed\s*\[\[\s*"# + name.escapeParentheses() + #"\s*\]\]\s*\}\}"#
         case .pageAlias(let name, _):
-            return #"\]\(\s*\[\[\s*"# + name + #"\s*\]\]s*\)"#
+            return #"\]\(\s*\[\[\s*"# + name.escapeParentheses() + #"\s*\]\]s*\)"#
         case .pageReference(let name, _):
-            return #"\[\[\s*"# + name + #"\s*\]\]"#
+            return #"\[\[\s*"# + name.escapeParentheses() + #"\s*\]\]"#
             
         case .blockEmbed(let uuid, _, _):
             return #"\{\{embed\s*\(\(\s*"# + uuid + #"\s*\)\)\s*\}\}"#
@@ -121,3 +121,8 @@ enum LinkFinder {
     }
 }
 
+extension String {
+    func escapeParentheses() -> String {
+        return replacingOccurrences(of: "(", with: #"\("#).replacingOccurrences(of: ")", with: #"\)"#)
+    }
+}
