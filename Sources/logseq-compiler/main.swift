@@ -15,6 +15,9 @@ struct LogseqCompiler: ParsableCommand {
     @Argument(help: "Hugo content folder", completion: CompletionKind.directory)
     private var destinationFolderPath: String
     
+    @Option(name: .shortAndLong, parsing: .next, help: "Assume public unless block states otherwise (public:: false). By default this is off and blocks are required to have public:: true to be included in published content.", completion: nil)
+    private var assumePublic: Bool
+    
     enum Error: String, Swift.Error {
         case badPath
     }
@@ -28,7 +31,7 @@ struct LogseqCompiler: ParsableCommand {
         
         do {
             try Graph(jsonPath: json, assetsFolder: assets, destinationFolder: destination)
-                .exportForHugo()
+                .exportForHugo(assumePublic: assumePublic)
             
             print("Done!")
         } catch {

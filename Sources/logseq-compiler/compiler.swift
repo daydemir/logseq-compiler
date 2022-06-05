@@ -26,8 +26,9 @@ struct Graph {
     let assetsFolder: URL
     let destinationFolder: URL
     
-    let blockPaths: [Int: String]
+    var blockPaths: [Int: String] = [:]
     let blocks: [Int: Block]
+    
     
     init(jsonPath graphJSONPath: URL, assetsFolder: URL, destinationFolder: URL) throws {
         //https://github.com/logseq/logseq/blob/master/deps/graph-parser/src/logseq/graph_parser/db/schema.cljs
@@ -61,14 +62,14 @@ struct Graph {
         let json = try! JSON(data: String(contentsOf: graphJSONPath).data(using: .utf8)!)
         
         print("Loading blocks...")
-        let blocks = try json.arrayValue.reduce([Int:Block]()) { dict, json in
+        
+        self.blocks = try json.arrayValue.reduce([Int:Block]()) { dict, json in
             guard let blockID = json[Block.Key.id.rawValue].int else { return dict }
             
             var dict = dict
             dict[blockID] = try Block(json)
             return dict
         }
-//            .map { try! Block($0) }
         print("Found \(blocks.count) blocks.")
         
         print("Calculating block hierarchies...")
@@ -77,14 +78,34 @@ struct Graph {
         }
         print("Done calculating block hierarchies.")
         
+        print("Calculating backlinks...")
+        var backlinkIDs = [Int: [Int]]()
+        blocks.forEach { pair in
+            pair.value.linkedIDs.forEach { linkedID in
+                if let list = backlinkIDs[linkedID] {
+                    backlinkIDs[linkedID] = list + [pair.value.id]
+                } else {
+                    backlinkIDs[linkedID] = [pair.value.id]
+                }
+            }
+        }
+        let backlinkPaths: [Int: [Block: String]] = backlinkIDs.mapValues { pair in
+            pair.reduce([Block: String]()) { dict, id -> [Block: String] in
+                guard let block = blocks[id] else { return dict }
+                var dict = dict
+                dict[block] = self.blockPaths[id]
+                return dict
+            }
+        }
+        print("Done calculating backlinks.")
+        
         
         print("Building relationships for blocks...")
-        self.blocks = blocks
-        self.allContent = Graph.convertBlocks(blocks, blockPaths: self.blockPaths)
+        self.allContent = Graph.convertBlocks(blocks, blockPaths: self.blockPaths, backlinkPaths: backlinkPaths)
         print("Done building relationships.")
     }
     
-    static func convertBlocks(_ blocks: [Int: Block], blockPaths: [Int: String]) -> [HugoBlock] {
+    static func convertBlocks(_ blocks: [Int: Block], blockPaths: [Int: String], backlinkPaths: [Int: [Block: String]]) -> [HugoBlock] {
         blocks.compactMap { pair in
             
             guard let path = blockPaths[pair.key] else { return nil }
@@ -116,12 +137,6 @@ struct Graph {
                 return dict
             }
             
-//            let backlinks = blocks.backlinks(forBlock: pair.value).reduce([Block: String]()) { dict, block in
-//                var dict = dict
-//                dict[block] = blockPaths[block.id]
-//                return dict
-//            }
-            
             let aliases = blocks.aliases(forBlock: pair.value).reduce([Block: String]()) { dict, block in
                 var dict = dict
                 dict[block] = blockPaths[block.id]
@@ -130,25 +145,42 @@ struct Graph {
             
             return HugoBlock(block: pair.value,
                              path: path,
-                             siblingIndex: 1,// blocks.siblings(forBlock: pair.value).leftSiblings.count + 1,
+                             siblingIndex: blocks.siblingIndex(forBlock: pair.value),
                              parentPath: parentTuple,
                              pagePath: pageTuple,
                              namespacePath: namespaceTuple,
                              linkPaths: links,
-                             backlinkPaths: [:],//backlinks,
+                             backlinkPaths: backlinkPaths[pair.key] ?? [:],
                              aliasPaths: aliases)
         }
     }
     
     
     
-    func exportForHugo() throws {
+    func exportForHugo(assumePublic: Bool) throws {
         //empty destination folder
-        try emptyDirectory(destinationFolder)
+        try emptyDirectory(destinationFolder, except: [destinationFolder.appendingPathComponent("files", isDirectory: true)])
 
+        
+
+        
         print("Filtering public content...")
-        let publishableContent = allContent.filter { $0.isPublic() }
-//            .compactMap { $0.cleanForPublic(all: blocks) }
+        
+        if assumePublic {
+            print("Assuming pages are public unless stated otherwise..")
+        } else {
+            print("Will only choose pages with public:: true")
+        }
+        let publicRegistry: [Int: Bool]
+        publicRegistry = allContent.reduce([Int: Bool]()) { dict, superblock in
+            var dict = dict
+            dict[superblock.block.id] = superblock.isPublic(assumePublic: assumePublic)
+            return dict
+        }
+        
+
+        let publishableContent = allContent.filter { publicRegistry[$0.block.id] ?? false }
+            .map { $0.removePrivateLinks(publicRegistry: publicRegistry) }
         print("Found \(publishableContent.count) public blocks.")
         
         let publishablePages = publishableContent
@@ -186,9 +218,11 @@ struct Graph {
         print("Done exporting assets.")
     }
     
-    private func emptyDirectory(_ directory: URL) throws {
+    private func emptyDirectory(_ directory: URL, except: [URL]) throws {
         try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).forEach { url in
-            try FileManager.default.removeItem(at: url)
+            if !except.contains(url) {
+                try FileManager.default.removeItem(at: url)
+            }
         }
     }
 
@@ -222,10 +256,23 @@ extension HugoBlock {
         return hugoYAML() + hugoModifiedContent(content: block.content, readable: false)
     }
     
+    private func avoidHugoReservedKeys(_ properties: [String: JSON]) -> [String: JSON] {
+        let keyReplacements = [
+            "url": "external-url",
+            "links": "external-links"
+        ]
+        
+        return properties.reduce([String: JSON]()) { dict, property in
+            var dict = dict
+            dict[keyReplacements[property.key] ?? property.key] = property.value
+            return dict
+        }
+    }
+    
     private func hugoYAML() -> String {
         let yamlProperties: String
         if !block.properties.dictionaryValue.keys.isEmpty {
-            yamlProperties = try! YAMLEncoder().encode(block.properties.dictionaryValue)
+            yamlProperties = try! YAMLEncoder().encode(avoidHugoReservedKeys(block.properties.dictionaryValue))
         } else {
             yamlProperties = ""
         }
@@ -289,6 +336,7 @@ extension HugoBlock {
             }
 
             return trimmedContent
+                .replacingOccurrences(of: "\"", with: #"\""#)
         }
     }
 }
@@ -296,8 +344,16 @@ extension HugoBlock {
 
 extension Block {
     
-    func isPublic() -> Bool {
-        return properties["public"].boolValue
+    func isPublic(assumePublic: Bool) -> Bool {
+        if assumePublic {
+            if let valueExists = properties["public"].bool {
+                return valueExists
+            } else {
+                return true //assuming public here
+            }
+        } else {
+            return properties["public"].boolValue
+        }
     }
     
     func showable() -> Bool {
@@ -379,6 +435,14 @@ extension Dictionary where Key == Int, Value == Block {
         
         return (leftSiblings: leftSiblings, rightSiblings: rightSiblings)
     }
+    
+    func siblingIndex(forBlock block: Block?) -> Int {
+        if let leftID = block?.leftID {
+            return siblingIndex(forBlock: self[leftID]) + 1
+        } else {
+            return 1
+        }
+    }
 }
 extension Array where Element == HugoBlock {
     
@@ -428,8 +492,8 @@ struct HugoBlock: Hashable {
         
     }
     
-    func isPublic() -> Bool {
-        return block.isPublic() || (pagePath?.0.isPublic() ?? false)
+    func isPublic(assumePublic: Bool) -> Bool {
+        return block.isPublic(assumePublic: assumePublic) || (pagePath?.0.isPublic(assumePublic: assumePublic) ?? false)
     }
     
     //unused currently
@@ -437,22 +501,17 @@ struct HugoBlock: Hashable {
 //        return (block.isPage() && block.isPublic()) || (all.page(forBlock: block)?.isPublic() ?? false)
 //    }
     
-    //unused currently
-//    func cleanForPublic(all: Set<Block>) -> HugoBlock? {
-//        guard checkBlockIsPublic(block: block, all: all) else {
-//            return nil
-//        }
-//
-//        return HugoBlock(block: block,
-//                         path: path,
-//                         siblingIndex: siblingIndex,
-//                         parentPath: parentPath,
-//                         pagePath: pagePath,
-//                         namespacePath: namespacePath,
-//                         linkPaths: linkPaths.filter { checkBlockIsPublic(block: $0.key, all: all) },
-//                         backlinkPaths: backlinkPaths.filter { checkBlockIsPublic(block: $0.key, all: all) },
-//                         aliasPaths: aliasPaths)
-//    }
+    func removePrivateLinks(publicRegistry: [Int: Bool]) -> HugoBlock {
+        return HugoBlock(block: block,
+                         path: path,
+                         siblingIndex: siblingIndex,
+                         parentPath: parentPath,
+                         pagePath: pagePath,
+                         namespacePath: namespacePath,
+                         linkPaths: linkPaths.filter { publicRegistry[$0.key.id] ?? false },
+                         backlinkPaths: backlinkPaths.filter { publicRegistry[$0.key.id] ?? false },
+                         aliasPaths: aliasPaths)
+    }
     
     static func == (lhs: HugoBlock, rhs: HugoBlock) -> Bool {
         return lhs.block == rhs.block
