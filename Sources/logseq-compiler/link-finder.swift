@@ -38,9 +38,9 @@ enum Shortcodes {
     
     static func shortcodes() -> [Shortcodes] {
         return [
-//            .youtube,
-//            .twitter,
-//            .vimeo
+            .youtube,
+            .twitter,
+            .vimeo
         ]
     }
     
@@ -60,7 +60,7 @@ enum Shortcodes {
     private func processLink(_ link: String) -> String {
         switch self {
         case .youtube:
-            return String(link.split(separator: "/").last ?? "\(link)")
+            return #"""# + String(link.split(separator: "/").last ?? "\(link)") + #"""#
         case .twitter:
             //converting "https://twitter.com/SanDiegoZoo/status/1453110110599868418"
             // to {{< tweet user="SanDiegoZoo" id="1453110110599868418" >}}
@@ -76,19 +76,19 @@ enum Shortcodes {
                 return link
             }
         case .vimeo:
-            return String(link.split(separator: "/").last ?? "\(link)")
+            return #"""# + String(link.split(separator: "/").last ?? "\(link)") + #"""#
         }
     }
     
     
-    private func replacement() -> String {
+    private func replacement(inside: String) -> String {
         switch self {
         case .youtube:
-            return #"{{< youtube $1 >}}"#
+            return #"{{< youtube "# + inside + #" >}}"#
         case .twitter:
-            return #"{{< tweet $1 >}}"#
+            return #"{{< tweet "# + inside + #" >}}"#
         case .vimeo:
-            return #"{{< vimeo $1 >}}"#
+            return #"{{< vimeo "# + inside + #" >}}"#
         }
     }
     
@@ -104,7 +104,23 @@ enum Shortcodes {
     func makeContentHugoFriendly(content: String) -> String {
         guard !content.isEmpty, let regex = regex() else { return content }
         
-        return regex.stringByReplacingMatches(in: content, range: content.range(), withTemplate: self.replacement())
+        return regex.matches(in: content, range: content.range()).reduce(content) { updatedContent, match in
+            print(match)
+            if let fullShortcodeRange = Range(match.range(at: 0), in: content),
+                let shortcodeInsideRange = Range(match.range(at: 1), in: content) {
+                
+                let shortcodeInside = content[shortcodeInsideRange]
+                let originalShortcode = content[fullShortcodeRange]
+                let newShortcode = replacement(inside: processLink(String(shortcodeInside)))
+                
+                print(originalShortcode)
+                print(shortcodeInside)
+                print(newShortcode)
+                return updatedContent.replacingOccurrences(of: originalShortcode, with: newShortcode)
+            } else {
+                return updatedContent
+            }
+        }
     }
 }
 
