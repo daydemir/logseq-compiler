@@ -327,8 +327,8 @@ extension HugoBlock {
         guard let content = content, content.count > 0 else { return "" }
         
         var updatedContent = updateAssetLinks(forContent: content)
-        updatedContent = updateShortcodes(forContent: updatedContent)
         updatedContent = updateLinks(forContent: updatedContent, linkPaths: linkPaths, readable: readable)
+        updatedContent = updateShortcodes(forContent: updatedContent)
         updatedContent = updateBlockProperties(forContent: updatedContent)
         
         return updatedContent
@@ -533,7 +533,7 @@ struct HugoBlock: Hashable {
                          parentPath: parentPath,
                          pagePath: pagePath,
                          namespacePath: namespacePath,
-                         linkPaths: linkPaths.filter { publicRegistry[$0.key.id] ?? false },
+                         linkPaths: linkPaths,// linkPaths.filter { publicRegistry[$0.key.id] ?? false },
                          backlinkPaths: backlinkPaths.filter { publicRegistry[$0.key.id] ?? false },
                          aliasPaths: aliasPaths,
                          assets: assets)

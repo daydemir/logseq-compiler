@@ -105,7 +105,6 @@ enum Shortcodes {
         guard !content.isEmpty, let regex = regex() else { return content }
         
         return regex.matches(in: content, range: content.range()).reduce(content) { updatedContent, match in
-            print(match)
             if let fullShortcodeRange = Range(match.range(at: 0), in: content),
                 let shortcodeInsideRange = Range(match.range(at: 1), in: content) {
                 
@@ -113,9 +112,6 @@ enum Shortcodes {
                 let originalShortcode = content[fullShortcodeRange]
                 let newShortcode = replacement(inside: processLink(String(shortcodeInside)))
                 
-                print(originalShortcode)
-                print(shortcodeInside)
-                print(newShortcode)
                 return updatedContent.replacingOccurrences(of: originalShortcode, with: newShortcode)
             } else {
                 return updatedContent
