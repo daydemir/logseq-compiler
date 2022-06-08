@@ -161,9 +161,6 @@ struct Graph {
     func exportForHugo(assumePublic: Bool) throws {
         //empty destination folder
         try emptyDirectory(destinationFolder, except: [destinationFolder.appendingPathComponent("files", isDirectory: true)])
-
-        
-
         
         print("Filtering public content...")
         
@@ -209,10 +206,7 @@ struct Graph {
         //move public assets
         let assetsDestination = destinationFolder.appendingPathComponent("assets", isDirectory: true)
         try FileManager.default.createDirectory(at: assetsDestination, withIntermediateDirectories: true)
-        
         let publishableAssets = publishableContent.flatMap { $0.assets }
-        print(publishableAssets)
-        
         try FileManager.default.contentsOfDirectory(at: assetsFolder, includingPropertiesForKeys: nil)
             .filter { publishableAssets.contains($0.lastPathComponent) }
             .forEach { url in
@@ -297,21 +291,16 @@ extension HugoBlock {
         return AssetFinder.assetUpdates().reduce(content) { updatedContent, assetCheck in
             return assetCheck.makeContentHugoFriendly(content: updatedContent)
         }
-        
-//        let updated = content.replacingOccurrences(of: "(../assets/", with: "(/assets/")
-//        if updated != content {
-//            print("found an asset in :")
-//            print(updated)
-//        }
-//        return updated
     }
     
-    //TODO: youtube, twitter
-    func hugoModifiedContent(content: String?, readable: Bool) -> String {
-        guard let content = content, content.count > 0 else { return "" }
-        
-        var updatedContent = updateAssetLinks(forContent: content)
-        
+    private func updateShortcodes(forContent content: String) -> String {
+        return Shortcodes.shortcodes().reduce(content) { updatedContent, shortcode in
+            return shortcode.makeContentHugoFriendly(content: updatedContent)
+        }
+    }
+    
+    private func updateLinks(forContent content: String, linkPaths: [Block: String], readable: Bool) -> String {
+        var updatedContent = content
         linkPaths.forEach { (linkedBlock, path) in
             if linkedBlock.isPage(), let name = linkedBlock.originalName ?? linkedBlock.name {
                 LinkFinder.pageLinkChecks(name: name, path: path).forEach  { linkFinder in
@@ -319,7 +308,7 @@ extension HugoBlock {
                 }
             } else {
                 //block
-                //this is where we would need to deal with parsing nested block references
+                //TODO: this is where we would need to deal with parsing nested block references
 //                let blockContent = linkedBlock.linkedIDs.count > 0 ? hugoModifiedContent(content: linkedBlock.content, readable: readable) : (linkedBlock.content ?? "")
                 let blockContent = linkedBlock.content ?? ""
                 LinkFinder.blockLinkChecks(uuid: linkedBlock.uuid, content: blockContent, path: path).forEach { linkFinder in
@@ -327,11 +316,20 @@ extension HugoBlock {
                 }
             }
         }
+        return updatedContent
+    }
+    
+    private func updateBlockProperties(forContent content: String) -> String {
+        return BlockPropertyFinder().makeContentHugoFriendly(content: content)
+    }
+    
+    func hugoModifiedContent(content: String?, readable: Bool) -> String {
+        guard let content = content, content.count > 0 else { return "" }
         
-//        if updatedContent == preLinkUpdatesContent && !linkPaths.isEmpty {
-//            print("Was not able to replace a link in this content: ")
-//            print(updatedContent)
-//        }
+        var updatedContent = updateAssetLinks(forContent: content)
+        updatedContent = updateShortcodes(forContent: updatedContent)
+        updatedContent = updateLinks(forContent: updatedContent, linkPaths: linkPaths, readable: readable)
+        updatedContent = updateBlockProperties(forContent: updatedContent)
         
         return updatedContent
     }

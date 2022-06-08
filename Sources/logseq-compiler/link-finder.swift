@@ -8,6 +8,29 @@
 import Foundation
 
 
+struct BlockPropertyFinder {
+    private func pattern() -> String {
+        return #"\n\S+::\s+\S+"#
+    }
+    
+    private func regex() -> NSRegularExpression? {
+        guard let regex = try? NSRegularExpression(pattern: self.pattern(), options: .caseInsensitive) else {
+            print("Error generating block property finder regex. Regex: " + self.pattern())
+            return nil
+        }
+        
+        return regex
+    }
+    
+    func makeContentHugoFriendly(content: String) -> String {
+        guard !content.isEmpty, let regex = regex() else { return content }
+        
+        return regex.stringByReplacingMatches(in: content, range: content.range(), withTemplate: "")
+    }
+    
+}
+
+
 enum Shortcodes {
     case youtube
     case twitter
@@ -15,13 +38,13 @@ enum Shortcodes {
     
     static func shortcodes() -> [Shortcodes] {
         return [
-            .youtube,
-            .twitter,
-            .vimeo
+//            .youtube,
+//            .twitter,
+//            .vimeo
         ]
     }
     
-    func pattern() -> String {
+    private func pattern() -> String {
         switch self {
         case .youtube:
             return #"\{\{youtube\s*(.*)\s*\}\}"#
@@ -33,15 +56,30 @@ enum Shortcodes {
     }
     
     
-    func replacement() -> String {
+    private func replacement() -> String {
         switch self {
         case .youtube:
-            return #"\{\{youtube\s*(.*)\s*\}\}"#
+            return #"{{< youtube $1 >}}"#
         case .twitter:
-            return #"\{\{tweet\s*(.*)\s*\}\}"#
+            return #"{{< tweet $1 >}}"#
         case .vimeo:
-            return #"\{\{vimeo\s*(.*)\s*\}\}"#
+            return #"{{< vimeo $1 >}}"#
         }
+    }
+    
+    private func regex() -> NSRegularExpression? {
+        guard let regex = try? NSRegularExpression(pattern: self.pattern(), options: .caseInsensitive) else {
+            print("Error generating shortcode finder regex. Regex: " + self.pattern())
+            return nil
+        }
+        
+        return regex
+    }
+    
+    func makeContentHugoFriendly(content: String) -> String {
+        guard !content.isEmpty, let regex = regex() else { return content }
+        
+        return regex.stringByReplacingMatches(in: content, range: content.range(), withTemplate: self.replacement())
     }
 }
 
@@ -64,7 +102,7 @@ enum AssetFinder {
     func pattern() -> String {
         switch self {
         case .assetWithProperties:
-            return AssetFinder.asset.pattern() + #"{.*}"#
+            return AssetFinder.asset.pattern() + #"\{.*\}"#
         case .asset:
             return #"\(\.\.\/"# + AssetFinder.assetsFolderName() + #"\/(.*)\)"#
         }
@@ -86,14 +124,14 @@ enum AssetFinder {
     func makeContentHugoFriendly(content: String) -> String {
         guard let regex = regex() else { return content }
         
-        let replaced = regex.stringByReplacingMatches(in: content, options: .reportCompletion, range: NSRange(content.startIndex..<content.endIndex, in: content), withTemplate: replacement())
+        let replaced = regex.stringByReplacingMatches(in: content, options: .reportCompletion, range: content.range(), withTemplate: replacement())
         return replaced
     }
     
     static func extractAssetNames(fromContent content: String) -> [String] {
         guard !content.isEmpty, let regex = AssetFinder.asset.regex() else { return [] }
         
-        return regex.matches(in: content, range: NSRange(content.startIndex..<content.endIndex, in: content)).compactMap { match in
+        return regex.matches(in: content, range: content.range()).compactMap { match in
             let assetNameRange = match.range(at: 1) //this is the first capture group
             if let substringRange = Range(assetNameRange, in: content) {
                 return String(content[substringRange])
@@ -204,7 +242,7 @@ enum LinkFinder {
             print("Skipping finding links for bad regex: " + self.pattern())
             return []
         }
-        return regex.matches(in: content, options: .reportCompletion, range: NSRange(content.startIndex..<content.endIndex, in: content)).map { (result: NSTextCheckingResult) in
+        return regex.matches(in: content, options: .reportCompletion, range: content.range()).map { (result: NSTextCheckingResult) in
             return result.range
         }
     }
@@ -224,5 +262,9 @@ enum LinkFinder {
 extension String {
     func escapeParentheses() -> String {
         return replacingOccurrences(of: "(", with: #"\("#).replacingOccurrences(of: ")", with: #"\)"#)
+    }
+    
+    func range() -> NSRange {
+        return NSRange(startIndex..<endIndex, in: self)
     }
 }
