@@ -7,6 +7,106 @@
 
 import Foundation
 
+
+enum Shortcodes {
+    case youtube
+    case twitter
+    case vimeo
+    
+    static func shortcodes() -> [Shortcodes] {
+        return [
+            .youtube,
+            .twitter,
+            .vimeo
+        ]
+    }
+    
+    func pattern() -> String {
+        switch self {
+        case .youtube:
+            return #"\{\{youtube\s*(.*)\s*\}\}"#
+        case .twitter:
+            return #"\{\{twitter\s*(.*)\s*\}\}"#
+        case .vimeo:
+            return #"\{\{vimeo\s*(.*)\s*\}\}"#
+        }
+    }
+    
+    
+    func replacement() -> String {
+        switch self {
+        case .youtube:
+            return #"\{\{youtube\s*(.*)\s*\}\}"#
+        case .twitter:
+            return #"\{\{tweet\s*(.*)\s*\}\}"#
+        case .vimeo:
+            return #"\{\{vimeo\s*(.*)\s*\}\}"#
+        }
+    }
+}
+
+
+enum AssetFinder {
+    case assetWithProperties
+    case asset
+    
+    static func assetUpdates() -> [AssetFinder] {
+        return [
+//            .assetWithProperties,
+            .asset
+        ]
+    }
+    
+    static func assetsFolderName() -> String {
+        return "assets"
+    }
+    
+    func pattern() -> String {
+        switch self {
+        case .assetWithProperties:
+            return AssetFinder.asset.pattern() + #"{.*}"#
+        case .asset:
+            return #"\(\.\.\/"# + AssetFinder.assetsFolderName() + #"\/(.*)\)"#
+        }
+    }
+    
+    func replacement() -> String {
+        return #"\(/"# + AssetFinder.assetsFolderName() + #"/$1\)"#
+    }
+    
+    private func regex() -> NSRegularExpression? {
+        guard let regex = try? NSRegularExpression(pattern: self.pattern(), options: .caseInsensitive) else {
+            print("Error generating asset finder regex, might be a bad asset folder name. Regex: " + self.pattern())
+            return nil
+        }
+        
+        return regex
+    }
+    
+    func makeContentHugoFriendly(content: String) -> String {
+        guard let regex = regex() else { return content }
+        
+        let replaced = regex.stringByReplacingMatches(in: content, options: .reportCompletion, range: NSRange(content.startIndex..<content.endIndex, in: content), withTemplate: replacement())
+        return replaced
+    }
+    
+    static func extractAssetNames(fromContent content: String) -> [String] {
+        guard !content.isEmpty, let regex = AssetFinder.asset.regex() else { return [] }
+        
+        return regex.matches(in: content, range: NSRange(content.startIndex..<content.endIndex, in: content)).compactMap { match in
+            let assetNameRange = match.range(at: 1) //this is the first capture group
+            if let substringRange = Range(assetNameRange, in: content) {
+                return String(content[substringRange])
+            } else{
+                return nil
+            }
+        }
+        
+    }
+}
+
+
+
 enum LinkFinder {
     
     case pageEmbed(name: String, path: String)

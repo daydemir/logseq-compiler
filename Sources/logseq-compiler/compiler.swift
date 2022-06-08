@@ -151,7 +151,8 @@ struct Graph {
                              namespacePath: namespaceTuple,
                              linkPaths: links,
                              backlinkPaths: backlinkPaths[pair.key] ?? [:],
-                             aliasPaths: aliases)
+                             aliasPaths: aliases,
+                             assets: AssetFinder.extractAssetNames(fromContent: pair.value.content ?? ""))
         }
     }
     
@@ -208,10 +209,12 @@ struct Graph {
         //move public assets
         let assetsDestination = destinationFolder.appendingPathComponent("assets", isDirectory: true)
         try FileManager.default.createDirectory(at: assetsDestination, withIntermediateDirectories: true)
+        
+        let publishableAssets = publishableContent.flatMap { $0.assets }
+        print(publishableAssets)
+        
         try FileManager.default.contentsOfDirectory(at: assetsFolder, includingPropertiesForKeys: nil)
-            .filter { assetURL in
-                publishableContent.first { $0.block.content?.contains(assetURL.lastPathComponent) ?? false } != nil
-            }
+            .filter { publishableAssets.contains($0.lastPathComponent) }
             .forEach { url in
                 try FileManager.default.copyItem(at: url, to: assetsDestination.appendingPathComponent(url.lastPathComponent))
             }
@@ -290,11 +293,24 @@ extension HugoBlock {
         return "---\n" + "title: \"\(readableName ?? "Untitled")\"\n" + headerContent + "---\n"
     }
     
+    private func updateAssetLinks(forContent content: String) -> String {
+        return AssetFinder.assetUpdates().reduce(content) { updatedContent, assetCheck in
+            return assetCheck.makeContentHugoFriendly(content: updatedContent)
+        }
+        
+//        let updated = content.replacingOccurrences(of: "(../assets/", with: "(/assets/")
+//        if updated != content {
+//            print("found an asset in :")
+//            print(updated)
+//        }
+//        return updated
+    }
+    
     //TODO: youtube, twitter
     func hugoModifiedContent(content: String?, readable: Bool) -> String {
         guard let content = content, content.count > 0 else { return "" }
         
-        var updatedContent = content.replacingOccurrences(of: "(../assets/", with: "(/assets/")
+        var updatedContent = updateAssetLinks(forContent: content)
         
         linkPaths.forEach { (linkedBlock, path) in
             if linkedBlock.isPage(), let name = linkedBlock.originalName ?? linkedBlock.name {
@@ -475,6 +491,8 @@ struct HugoBlock: Hashable {
     let backlinkPaths: [Block: String]
     let aliasPaths: [Block: String]
     
+    let assets: [String]
+    
     func createSection(inDirectory directory: URL, superblocks: [HugoBlock], blockFolder: Bool = true) throws {
         guard block.showable() else { return }
         
@@ -519,7 +537,8 @@ struct HugoBlock: Hashable {
                          namespacePath: namespacePath,
                          linkPaths: linkPaths.filter { publicRegistry[$0.key.id] ?? false },
                          backlinkPaths: backlinkPaths.filter { publicRegistry[$0.key.id] ?? false },
-                         aliasPaths: aliasPaths)
+                         aliasPaths: aliasPaths,
+                         assets: assets)
     }
     
     static func == (lhs: HugoBlock, rhs: HugoBlock) -> Bool {
