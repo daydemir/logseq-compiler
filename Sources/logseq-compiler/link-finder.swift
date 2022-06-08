@@ -56,6 +56,31 @@ enum Shortcodes {
     }
     
     
+    //TODO: this data extraction could be less hacky for all these
+    private func processLink(_ link: String) -> String {
+        switch self {
+        case .youtube:
+            return String(link.split(separator: "/").last ?? "\(link)")
+        case .twitter:
+            //converting "https://twitter.com/SanDiegoZoo/status/1453110110599868418"
+            // to {{< tweet user="SanDiegoZoo" id="1453110110599868418" >}}
+            
+            var sections = link.split(separator: "/")
+            let id = sections.popLast()
+            _ = sections.popLast()
+            let user = sections.popLast()
+            
+            if let id = id, let user = user {
+                return "user=\"\(user)\" id=\"\(id)\""
+            } else {
+                return link
+            }
+        case .vimeo:
+            return String(link.split(separator: "/").last ?? "\(link)")
+        }
+    }
+    
+    
     private func replacement() -> String {
         switch self {
         case .youtube:
@@ -90,7 +115,7 @@ enum AssetFinder {
     
     static func assetUpdates() -> [AssetFinder] {
         return [
-//            .assetWithProperties,
+            .assetWithProperties,
             .asset
         ]
     }
