@@ -246,6 +246,8 @@ extension HugoBlock {
             dict["links"] = "\n - " + linkPaths.values.map {  "\"\($0)\"\n" }.joined(separator:" - ")
         }
         
+        dict["collapsed"] = block.collapsed
+        
         return JSON(dict)
     }
     

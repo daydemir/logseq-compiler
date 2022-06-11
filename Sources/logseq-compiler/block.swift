@@ -27,6 +27,7 @@ struct Block: Hashable {
         case properties = "block/properties"
         case preblock = "block/pre-block?"
         case format = "block/format"
+        case collapsed = "block/collapsed?"
         
         case updatedAt = "block/updated-at"
         case createdAt = "block/created-at"
@@ -51,6 +52,7 @@ struct Block: Hashable {
     let properties: Properties
     let preblock: Bool
     let format: String?
+    let collapsed: Bool
     
     let updatedAt: TimeInterval?
     let createdAt: TimeInterval?
@@ -67,7 +69,6 @@ struct Block: Hashable {
         self.uuid = uuid
         self.id = id
         
-        
         self.name = json[Key.name.rawValue].string?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.originalName = json[Key.originalName.rawValue].string?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.content = json[Key.content.rawValue].string
@@ -80,6 +81,7 @@ struct Block: Hashable {
         self.properties = json[Key.properties.rawValue]
         self.preblock = json[Key.preblock.rawValue].boolValue
         self.format = json[Key.format.rawValue].string
+        self.collapsed = json[Key.collapsed.rawValue].boolValue
         
         self.updatedAt = json[Key.updatedAt.rawValue].double
         self.createdAt = json[Key.createdAt.rawValue].double
