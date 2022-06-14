@@ -538,13 +538,25 @@ struct HugoBlock: Hashable {
 //    }
     
     func removePrivateLinks(publicRegistry: [Int: Bool]) -> HugoBlock {
+        
+        let cleanedLinkPaths = linkPaths.reduce([Block: String]()) { newLinkPaths, linkPath in
+            var newLinkPaths = newLinkPaths
+            let isPublic = publicRegistry[linkPath.key.id] ?? false
+            if !isPublic {
+                newLinkPaths[linkPath.key] = "-" //obfuscate destination name to maintain privacy
+            } else {
+                newLinkPaths[linkPath.key] = linkPath.value
+            }
+            return newLinkPaths
+        }
+        
         return HugoBlock(block: block,
                          path: path,
                          siblingIndex: siblingIndex,
                          parentPath: parentPath,
                          pagePath: pagePath,
                          namespacePath: namespacePath,
-                         linkPaths: linkPaths,// linkPaths.filter { publicRegistry[$0.key.id] ?? false },
+                         linkPaths: cleanedLinkPaths,
                          backlinkPaths: backlinkPaths.filter { publicRegistry[$0.key.id] ?? false },
                          aliasPaths: aliasPaths,
                          assets: assets)
