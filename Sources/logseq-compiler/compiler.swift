@@ -532,11 +532,6 @@ struct HugoBlock: Hashable {
         return block.isPublic(assumePublic: assumePublic) || (pagePath?.0.isPublic(assumePublic: assumePublic) ?? false)
     }
     
-    //unused currently
-//    private func checkBlockIsPublic(block: Block, all: [Int: Block]) -> Bool {
-//        return (block.isPage() && block.isPublic()) || (all.page(forBlock: block)?.isPublic() ?? false)
-//    }
-    
     func removePrivateLinks(publicRegistry: [Int: Bool]) -> HugoBlock {
         
         let cleanedLinkPaths = linkPaths.reduce([Block: String]()) { newLinkPaths, linkPath in
