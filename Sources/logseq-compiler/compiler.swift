@@ -17,7 +17,7 @@ enum CompilerError: Error {
 let indexFile = "_index.md"
 typealias Properties = JSON
 
-let notesFolder = "notes/"
+let notesFolder = "graph/"
 
 struct Graph {
     
@@ -81,12 +81,21 @@ struct Graph {
         print("Calculating backlinks...")
         var backlinkIDs = [Int: [Int]]()
         blocks.forEach { pair in
-            pair.value.linkedIDs.forEach { linkedID in
-                if let list = backlinkIDs[linkedID] {
-                    backlinkIDs[linkedID] = list + [pair.value.id]
-                } else {
-                    backlinkIDs[linkedID] = [pair.value.id]
-                }
+            let parentInheritedLinkedIDs: [Int]
+            if let parentID = pair.value.parentID, let parent = blocks[parentID] {
+                parentInheritedLinkedIDs = parent.inheritedLinkedIDs
+            } else {
+                parentInheritedLinkedIDs = []
+            }
+            
+            pair.value.linkedIDs
+                .filter { !parentInheritedLinkedIDs.contains($0) } //if parent links or inherits a link to this, no need to include this block as a backlink
+                .forEach { linkedID in
+                    if let list = backlinkIDs[linkedID] {
+                        backlinkIDs[linkedID] = list + [pair.value.id]
+                    } else {
+                        backlinkIDs[linkedID] = [pair.value.id]
+                    }
             }
         }
         let backlinkPaths: [Int: [Block: String]] = backlinkIDs.mapValues { pair in
