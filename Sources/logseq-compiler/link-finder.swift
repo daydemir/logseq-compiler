@@ -213,11 +213,11 @@ enum LinkFinder {
     func pattern() -> String {
         switch self {
         case .pageEmbed(let name, _):
-            return #"\{\{embed\s*\[\[\s*"# + name.escapeParentheses() + #"\s*\]\]\s*\}\}"#
+            return #"\{\{embed\s*\[\[\s*"# + name.regexEscaped() + #"\s*\]\]\s*\}\}"#
         case .pageAlias(let name, _):
-            return #"\]\(\s*\[\[\s*"# + name.escapeParentheses() + #"\s*\]\]s*\)"#
+            return #"\]\(\s*\[\[\s*"# + name.regexEscaped() + #"\s*\]\]s*\)"#
         case .pageReference(let name, _):
-            return #"\[\[\s*"# + name.escapeParentheses() + #"\s*\]\]"#
+            return #"\[\[\s*"# + name.regexEscaped() + #"\s*\]\]"#
             
         case .blockEmbed(let uuid, _, _):
             return #"\{\{embed\s*\(\(\s*"# + uuid + #"\s*\)\)\s*\}\}"#
@@ -297,8 +297,9 @@ enum LinkFinder {
 }
 
 extension String {
-    func escapeParentheses() -> String {
-        return replacingOccurrences(of: "(", with: #"\("#).replacingOccurrences(of: ")", with: #"\)"#)
+    
+    func regexEscaped() -> String {
+        return NSRegularExpression.escapedPattern(for: self)
     }
     
     func range() -> NSRange {
