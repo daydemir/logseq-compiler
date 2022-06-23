@@ -347,7 +347,7 @@ extension HugoBlock {
     
     func readableName() -> String? {
         if block.isPage() {
-            return block.originalName ?? block.name
+            return (block.originalName ?? block.name)?.escapedQuotes()
         } else {
             let content = hugoModifiedContent(content: block.content, readable: true)
             //use trimmed content since blocks don't have titles
@@ -369,7 +369,7 @@ extension HugoBlock {
             let unescapedHash = #"#"#
 
             return trimmedContent
-                .replacingOccurrences(of: "\"", with: #"\""#)
+                .escapedQuotes()
                 .replacingOccurrences(of: escapedHash, with: unescapedHash)
         }
     }
@@ -414,6 +414,12 @@ extension Block {
         }
     }
     
+}
+
+extension String {
+    func escapedQuotes() -> String {
+        return replacingOccurrences(of: #"""#, with: #"\""#)
+    }
 }
 
 extension Dictionary where Key == Int, Value == Block {
