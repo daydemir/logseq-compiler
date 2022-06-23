@@ -79,18 +79,8 @@ struct Graph {
         print("Done calculating block hierarchies.")
         
         print("Calculating backlinks...")
-        let home = blocks.first { $0.value.isHome() }
         var backlinkIDs = [Int: [Int]]()
-        blocks
-            //TODO: not including references from home blocks because the breadcrumbs don't work, should fix this eventually so we can see references from home
-            .filter {
-                if let home = home {
-                    return $0 == home || $0.value.pageID == home.key
-                } else {
-                    return true
-                }
-            }
-            .forEach { blockPair in
+        blocks.forEach { blockPair in
                 let parentInheritedLinkedIDs: [Int]
                 if let parentID = blockPair.value.parentID, let parent = blocks[parentID] {
                     parentInheritedLinkedIDs = parent.inheritedLinkedIDs
