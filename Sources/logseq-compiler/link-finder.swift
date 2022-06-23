@@ -104,19 +104,25 @@ enum Shortcodes {
     func makeContentHugoFriendly(content: String) -> String {
         guard !content.isEmpty, let regex = regex() else { return content }
         
-        return regex.matches(in: content, range: content.range()).reduce(content) { updatedContent, match in
-            if let fullShortcodeRange = Range(match.range(at: 0), in: content),
+        var updatedContent = content as NSString
+        let rangeCount = regex.matches(in: content, range: content.range()).count
+        
+        for _ in 0..<rangeCount {
+            //need to run `ranges` after each replacement to get the right range if we are doing multiple replacements
+            //TODO: change the system so each link type is it's own system and you can use stringByReplacingMatches and avoid this kind of hacky way of handling multiple links to same destination
+            if let match = regex.matches(in: content, range: content.range()).first,
+                let fullShortcodeRange = Range(match.range(at: 0), in: content),
                 let shortcodeInsideRange = Range(match.range(at: 1), in: content) {
                 
                 let shortcodeInside = content[shortcodeInsideRange]
                 let originalShortcode = content[fullShortcodeRange]
                 let newShortcode = replacement(inside: processLink(String(shortcodeInside)))
                 
-                return updatedContent.replacingOccurrences(of: originalShortcode, with: newShortcode)
-            } else {
-                return updatedContent
+                updatedContent = (updatedContent as String).replacingOccurrences(of: originalShortcode, with: newShortcode) as NSString
             }
         }
+        
+        return updatedContent as String
     }
 }
 
@@ -287,9 +293,16 @@ enum LinkFinder {
     func makeContentHugoFriendly(_ content: String, noLinks: Bool) -> String {
         var updatedContent = content as NSString
         
-        ranges(inContent: content).forEach { range in
-            let replacement = noLinks ? readable() : hugoFriendlyLink()
-            updatedContent = updatedContent.replacingCharacters(in: range, with: replacement) as NSString
+        let rangeCount = ranges(inContent: content).count
+        
+        
+        for _ in 0..<rangeCount {
+            //need to run `ranges` after each replacement to get the right range if we are doing multiple replacements
+            //TODO: change the system so each link type is it's own system and you can use stringByReplacingMatches and avoid this kind of hacky way of handling multiple links to same destination
+            if let range = ranges(inContent: updatedContent as String).first {
+                let replacement = noLinks ? readable() : hugoFriendlyLink()
+                updatedContent = updatedContent.replacingCharacters(in: range, with: replacement) as NSString
+            }
         }
         
         return updatedContent as String
