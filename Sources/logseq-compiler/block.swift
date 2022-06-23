@@ -34,7 +34,7 @@ struct Block: Hashable {
         
         case refs = "block/refs"
         case pathRefs = "block/path-refs"
-        case alias = "block"
+        case alias = "block/alias"
     }
     
     let uuid: String

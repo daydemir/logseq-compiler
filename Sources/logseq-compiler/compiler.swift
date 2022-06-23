@@ -79,25 +79,36 @@ struct Graph {
         print("Done calculating block hierarchies.")
         
         print("Calculating backlinks...")
+        let home = blocks.first { $0.value.isHome() }
         var backlinkIDs = [Int: [Int]]()
-        blocks.forEach { pair in
-            let parentInheritedLinkedIDs: [Int]
-            if let parentID = pair.value.parentID, let parent = blocks[parentID] {
-                parentInheritedLinkedIDs = parent.inheritedLinkedIDs
-            } else {
-                parentInheritedLinkedIDs = []
+        blocks
+            //TODO: not including references from home blocks because the breadcrumbs don't work, should fix this eventually so we can see references from home
+            .filter {
+                if let home = home {
+                    return $0 == home || $0.value.pageID == home.key
+                } else {
+                    return true
+                }
             }
-            
-            pair.value.linkedIDs
-                .filter { !parentInheritedLinkedIDs.contains($0) } //if parent links or inherits a link to this, no need to include this block as a backlink
-                .forEach { linkedID in
-                    if let list = backlinkIDs[linkedID] {
-                        backlinkIDs[linkedID] = list + [pair.value.id]
-                    } else {
-                        backlinkIDs[linkedID] = [pair.value.id]
-                    }
+            .forEach { blockPair in
+                let parentInheritedLinkedIDs: [Int]
+                if let parentID = blockPair.value.parentID, let parent = blocks[parentID] {
+                    parentInheritedLinkedIDs = parent.inheritedLinkedIDs
+                } else {
+                    parentInheritedLinkedIDs = []
+                }
+                
+                blockPair.value.linkedIDs
+                    .filter { !parentInheritedLinkedIDs.contains($0) } //if parent links or inherits a link to this, no need to include this block as a backlink
+                    .forEach { linkedID in
+                        if let list = backlinkIDs[linkedID] {
+                            backlinkIDs[linkedID] = list + [blockPair.value.id]
+                        } else {
+                            backlinkIDs[linkedID] = [blockPair.value.id]
+                        }
+                }
             }
-        }
+        
         let backlinkPaths: [Int: [Block: String]] = backlinkIDs.mapValues { pair in
             pair.reduce([Block: String]()) { dict, id -> [Block: String] in
                 guard let block = blocks[id] else { return dict }
@@ -197,7 +208,7 @@ struct Graph {
         
         print("Exporting to files for Hugo...")
         //put home directly in content folder
-        let homePage = publishablePages.first { $0.block.properties["home"].boolValue }
+        let homePage = publishablePages.first { $0.block.isHome() }
         if let homePage = homePage {
             try homePage.createSection(inDirectory: destinationFolder, superblocks: publishableContent, blockFolder: false)
         }
@@ -232,6 +243,12 @@ struct Graph {
         }
     }
 
+}
+
+extension Block {
+    func isHome() -> Bool {
+        return self.properties["home"].boolValue
+    }
 }
 
 extension HugoBlock {
