@@ -38,7 +38,7 @@ struct Block: Hashable {
     }
     
     let uuid: String
-    let id: Int
+    let id: BlockID
     
     let name: String?
     let originalName: String?
