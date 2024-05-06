@@ -539,12 +539,24 @@ struct HugoBlock: Hashable {
         if files.fileExists(atPath: indexFilePath.path) {
             print("Avoiding creating duplicate index file at " + indexFilePath.absoluteString)
         } else {
-            files.createFile(atPath: indexFilePath.path, contents: file().data(using: .utf8))
+            if #available(macOS 10.15, *) {
+                Task {
+                    FileManager.default.createFile(atPath: indexFilePath.path, contents: file().data(using: .utf8))
+                }
+            } else {
+                FileManager.default.createFile(atPath: indexFilePath.path, contents: file().data(using: .utf8))
+            }
         }
         
         try superblocks.children(forBlock: self)
-            .forEach {
-                try $0.createSection(inDirectory: blockDirectory, superblocks: superblocks)
+            .forEach { section in
+                if #available(macOS 10.15, *) {
+                    Task {
+                        try section.createSection(inDirectory: blockDirectory, superblocks: superblocks)
+                    }
+                } else {
+                    try section.createSection(inDirectory: blockDirectory, superblocks: superblocks)
+                }
             }
         
     }
