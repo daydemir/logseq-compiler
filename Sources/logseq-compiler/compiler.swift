@@ -302,7 +302,7 @@ extension HugoBlock {
         let headerContent = yamlProperties + "\n" + hugo + extras
         let readableName = readableName()
         
-        return "---\n" + "title: \'\(readableName ?? "Untitled")\'\n" + headerContent + "---\n"
+        return "---\n" + "title: \((readableName ?? "Untitled").quoted())\n" + headerContent + "---\n"
     }
     
     private func updateAssetLinks(forContent content: String) -> String {
@@ -426,6 +426,14 @@ extension Block {
 extension String {
     func escapedQuotes() -> String {
         return replacingOccurrences(of: #"""#, with: #"\""#)
+    }
+    
+    func quoted() -> String {
+        if contains("'") {
+            return "\"\(self)\""
+        } else {
+            return "'\(self)'"
+        }
     }
 }
 
