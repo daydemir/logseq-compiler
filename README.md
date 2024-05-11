@@ -11,4 +11,9 @@ Some features
 
 Future stuff
 - Obfuscate names of links to private pages / blocks
-- Enable grammar for semantic links using arrows (->) 
+- Enable grammar for semantic links using arrows (->)
+
+command for local testing
+```
+swift run logseq-compiler ~/Build/notes/interface/.export/graph.json ~/Build/notes/interface/assets ~/Build/graph/interface-web/content --assume-public=true
+``` 
