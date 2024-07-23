@@ -15,5 +15,5 @@ Future stuff
 
 command for local testing
 ```
-swift run logseq-compiler ~/Build/notes/interface/.export/graph.json ~/Build/notes/interface/assets ~/Build/graph/interface-web/content --assume-public=true
+swift run logseq-compiler ~/Build/notes/life/.export/graph.json ~/Build/notes/life/assets ~/Build/graph/interface-web/content --assume-public=false
 ``` 

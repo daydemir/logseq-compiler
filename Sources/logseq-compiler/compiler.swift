@@ -196,6 +196,15 @@ struct Graph {
         print("With \(publishablePages.count) public pages.")
         
         
+        let publicBlocksInPrivatePages = publishableContent.filter {
+            let isBlock = !$0.block.isPage()
+            let inPrivatePage = publicRegistry[$0.block.pageID!] ?? false
+            return isBlock && inPrivatePage
+        }
+        
+        print("Found \(publicBlocksInPrivatePages.count) public blocks in private pages")
+        
+        
         print("Exporting to files for Hugo...")
         //put home directly in content folder
         let homePage = publishablePages.first { $0.block.isHome() }
@@ -210,6 +219,10 @@ struct Graph {
         try publishablePages
             .filter { $0 != homePage }
             .forEach { try $0.createSection(inDirectory: notesDestination, superblocks: publishableContent)}
+        
+        //find public blocks that have not had sections created yet and make the parent hierarchy
+        
+        
         print("Done exporting files.")
         
         print("Exporting assets...")
