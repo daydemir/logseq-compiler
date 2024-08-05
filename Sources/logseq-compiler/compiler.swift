@@ -162,7 +162,9 @@ struct Graph {
                              linkPaths: links,
                              backlinkPaths: backlinkPaths[pair.key] ?? [:],
                              aliasPaths: aliases,
-                             assets: AssetFinder.extractAssetNames(fromContent: pair.value.content ?? ""))
+                             assets: AssetFinder.extractAssetNames(fromContent: pair.value.content ?? ""),
+                             ancestors: blocks.allAncestors(forBlock: pair.value)
+            )
         }
     }
     
@@ -196,11 +198,16 @@ struct Graph {
         print("With \(publishablePages.count) public pages.")
         
         
-        let publicBlocksInPrivatePages = publishableContent.filter {
-            let isBlock = !$0.block.isPage()
-            let inPrivatePage = publicRegistry[$0.block.pageID!] ?? false
-            return isBlock && inPrivatePage
-        }
+        let publicBlocksInPrivatePages = Set(
+            publishableContent
+            .filter {
+                guard let pageID = $0.block.pageID else { return false /* is page so return false */ }
+                let isBlock = !$0.block.isPage()
+                let inPublicPage = publicRegistry[pageID] ?? false
+                return isBlock && !inPublicPage
+            }
+            .map { $0.block.id }
+        )
         
         print("Found \(publicBlocksInPrivatePages.count) public blocks in private pages")
         
@@ -209,7 +216,7 @@ struct Graph {
         //put home directly in content folder
         let homePage = publishablePages.first { $0.block.isHome() }
         if let homePage = homePage {
-            try homePage.createSection(inDirectory: destinationFolder, superblocks: publishableContent, blockFolder: false)
+            try homePage.createSection(inDirectory: destinationFolder, superblocks: publishableContent, publicsInPrivateIDs: publicBlocksInPrivatePages, blockFolder: false)
         }
         print("Exported home page.")
         
@@ -218,10 +225,22 @@ struct Graph {
         try FileManager.default.createDirectory(at: notesDestination, withIntermediateDirectories: false)
         try publishablePages
             .filter { $0 != homePage }
-            .forEach { try $0.createSection(inDirectory: notesDestination, superblocks: publishableContent)}
+            .forEach { try $0.createSection(inDirectory: notesDestination, superblocks: publishableContent, publicsInPrivateIDs: publicBlocksInPrivatePages)}
         
-        //find public blocks that have not had sections created yet and make the parent hierarchy
         
+//        print("Exporting public blocks within private pages...")
+//        //TODO: to support public blocks in private pages, find public blocks that have not had sections created yet and make the parent hierarchy
+//        try publicBlocksInPrivatePages
+//            .map { block in
+//                let parents = blocks.allAncestors(forBlock: blocks[block.block.id]!)
+//                let parentsHugoBlocks = allContent
+//                    .filter { parents.contains($0.block) }
+//                    .sorted { blocks.allAncestors(forBlock: $0.block).count < blocks.allAncestors(forBlock: $1.block).count }
+//                return (block, parentsHugoBlocks)
+//            }
+//            .forEach { (block: HugoBlock, parents: [HugoBlock]) in
+//                try block.createPlaceholderSectionsForPrivateParents(parents: parents, inDirectory: notesDestination, superblocks: publishableContent)
+//            }
         
         print("Done exporting files.")
         
@@ -229,10 +248,14 @@ struct Graph {
         //move public assets
         let assetsDestination = destinationFolder.appendingPathComponent("assets", isDirectory: true)
         try FileManager.default.createDirectory(at: assetsDestination, withIntermediateDirectories: true)
+        let allAssets = allContent.flatMap { $0.assets }
         let publishableAssets = publishableContent.flatMap { $0.assets }
+        print("Found \(publishableAssets.count) publishable assets out of a total \(allAssets.count) assets.")
+        print("Copying assets...")
         try FileManager.default.contentsOfDirectory(at: assetsFolder, includingPropertiesForKeys: nil)
             .filter { publishableAssets.contains($0.lastPathComponent) }
             .forEach { url in
+                print(url)
                 try FileManager.default.copyItem(at: url, to: assetsDestination.appendingPathComponent(url.lastPathComponent))
             }
         print("Done exporting assets.")
@@ -536,11 +559,22 @@ struct HugoBlock: Hashable {
     
     let assets: [String]
     
-    func createSection(inDirectory directory: URL, superblocks: [HugoBlock], blockFolder: Bool = true) throws {
+    let ancestors: [Block]
+    
+    func createSection(inDirectory directory: URL, superblocks: [HugoBlock], publicsInPrivateIDs: Set<Int>, blockFolder: Bool = true) throws {
         guard block.showable() else { return }
         
+        let parentsPath: String
+        if publicsInPrivateIDs.contains(self.block.id) {
+            parentsPath = ancestors.reduce("") { path, parent in
+                return path + parent.pathComponent() + "/"
+            }
+        } else {
+            parentsPath = ""
+        }
+        
         let files = FileManager.default
-        let blockDirectory = blockFolder ? directory.appendingPathComponent(block.pathComponent()) : directory
+        let blockDirectory = blockFolder ? directory.appendingPathComponent(parentsPath).appendingPathComponent(block.pathComponent()) : directory
         let indexFilePath = blockDirectory.appendingPathComponent(indexFile)
         
         if files.fileExists(atPath: blockDirectory.path) {
@@ -552,14 +586,13 @@ struct HugoBlock: Hashable {
         if files.fileExists(atPath: indexFilePath.path) {
             print("Avoiding creating duplicate index file at " + indexFilePath.absoluteString)
         } else {
-            FileManager.default.createFile(atPath: indexFilePath.path, contents: file().data(using: .utf8))
+            files.createFile(atPath: indexFilePath.path, contents: file().data(using: .utf8))
         }
         
         try superblocks.children(forBlock: self)
             .forEach { section in
-                try section.createSection(inDirectory: blockDirectory, superblocks: superblocks)
+                try section.createSection(inDirectory: blockDirectory, superblocks: superblocks, publicsInPrivateIDs: publicsInPrivateIDs)
             }
-        
     }
     
     func isPublic(assumePublic: Bool) -> Bool {
@@ -588,7 +621,8 @@ struct HugoBlock: Hashable {
                          linkPaths: cleanedLinkPaths,
                          backlinkPaths: backlinkPaths.filter { publicRegistry[$0.key.id] ?? false },
                          aliasPaths: aliasPaths,
-                         assets: assets)
+                         assets: assets,
+                         ancestors: ancestors)
     }
     
     static func == (lhs: HugoBlock, rhs: HugoBlock) -> Bool {
