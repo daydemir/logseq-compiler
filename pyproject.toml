@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "logseq-compiler"
+version = "0.1.0"
+description = "Convert Logseq JSON exports into Hugo-compatible Markdown."
+authors = ["Deniz Aydemir <deniz@aydemir.us>"]
+packages = [{ include = "logseq_compiler" }]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+pyyaml = "^6.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
