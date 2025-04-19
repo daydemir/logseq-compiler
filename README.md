@@ -14,6 +14,12 @@ Future stuff
 - Enable grammar for semantic links using arrows (->)
 
 command for local testing
+
+export logseq notes to a json in the notes repo
+```sh
+lq sq --graph interface '[:find (pull ?p [*]) :where (?p :block/uuid ?id)]' | jet --to json > './.export/graph.json'
 ```
+
+```sh
 swift run logseq-compiler ~/Build/notes/life/.export/graph.json ~/Build/notes/life/assets ~/Build/graph/interface-web/content --assume-public=false
 ``` 

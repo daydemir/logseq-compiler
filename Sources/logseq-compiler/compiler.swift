@@ -206,17 +206,19 @@ struct Graph {
                 let inPublicPage = publicRegistry[pageID] ?? false
                 return isBlock && !inPublicPage
             }
-            .map { $0.block.id }
         )
         
         print("Found \(publicBlocksInPrivatePages.count) public blocks in private pages")
+        print("\(publicBlocksInPrivatePages.map { $0.block.content })")
+        
+        let publicBlockInPrivatePagesIds = Set(publicBlocksInPrivatePages.map { $0.block.id })
         
         
         print("Exporting to files for Hugo...")
         //put home directly in content folder
         let homePage = publishablePages.first { $0.block.isHome() }
         if let homePage = homePage {
-            try homePage.createSection(inDirectory: destinationFolder, superblocks: publishableContent, publicsInPrivateIDs: publicBlocksInPrivatePages, blockFolder: false)
+            try homePage.createSection(inDirectory: destinationFolder, superblocks: publishableContent, publicsInPrivateIDs: publicBlockInPrivatePagesIds, blockFolder: false)
         }
         print("Exported home page.")
         
@@ -225,7 +227,7 @@ struct Graph {
         try FileManager.default.createDirectory(at: notesDestination, withIntermediateDirectories: false)
         try publishablePages
             .filter { $0 != homePage }
-            .forEach { try $0.createSection(inDirectory: notesDestination, superblocks: publishableContent, publicsInPrivateIDs: publicBlocksInPrivatePages)}
+            .forEach { try $0.createSection(inDirectory: notesDestination, superblocks: publishableContent, publicsInPrivateIDs: publicBlockInPrivatePagesIds)}
         
         
 //        print("Exporting public blocks within private pages...")
@@ -255,7 +257,6 @@ struct Graph {
         try FileManager.default.contentsOfDirectory(at: assetsFolder, includingPropertiesForKeys: nil)
             .filter { publishableAssets.contains($0.lastPathComponent) }
             .forEach { url in
-                print(url)
                 try FileManager.default.copyItem(at: url, to: assetsDestination.appendingPathComponent(url.lastPathComponent))
             }
         print("Done exporting assets.")
@@ -565,10 +566,14 @@ struct HugoBlock: Hashable {
         guard block.showable() else { return }
         
         let parentsPath: String
+        print(publicsInPrivateIDs)
         if publicsInPrivateIDs.contains(self.block.id) {
+            print("Building ancestors path...")
+            print(ancestors)
             parentsPath = ancestors.reduce("") { path, parent in
                 return path + parent.pathComponent() + "/"
             }
+            print(parentsPath)
         } else {
             parentsPath = ""
         }

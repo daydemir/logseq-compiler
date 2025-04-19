@@ -38,7 +38,20 @@ struct LogseqCompiler: ParsableCommand {
             print(error.localizedDescription)
         }
     }
+    
+    static func test() -> LogseqCompiler {
+        //swift run logseq-compiler ~/Build/notes/life/.export/graph.json ~/Build/notes/life/assets ~/Build/graph/interface-web/content --assume-public=false
+        
+        var compiler = LogseqCompiler()
+        compiler.graphJSONPath = "~/Build/notes/life/.export/graph.json"
+        compiler.assetsFolderPath = "~/Build/notes/life/assets"
+        compiler.destinationFolderPath = "~/Build/graph/interface-web/content"
+        compiler.assumePublic = false
+        return compiler
+    }
 }
 
 
 LogseqCompiler.main()
+
+//try LogseqCompiler.test().run()

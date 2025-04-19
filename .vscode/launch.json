@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:logseq-compiler}",
+            "name": "Debug logseq-compiler",
+            "program": "${workspaceFolder:logseq-compiler}/.build/debug/logseq-compiler",
+            "preLaunchTask": "swift: Build Debug logseq-compiler"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:logseq-compiler}",
+            "name": "Release logseq-compiler",
+            "program": "${workspaceFolder:logseq-compiler}/.build/release/logseq-compiler",
+            "preLaunchTask": "swift: Build Release logseq-compiler"
+        }
+    ]
+}
