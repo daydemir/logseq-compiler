@@ -189,7 +189,7 @@ class Graph:
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(hb.file(public_registry=public_registry))
 
-        # Asset copying logic: copy only assets referenced by public blocks (no regex)
+        # Asset copying logic: copy only assets referenced by public blocks or as the 'image' property of a public page (no regex)
         assets_src = self.assets_folder
         assets_dst = self.destination_folder / 'assets'
         if assets_src.exists() and assets_src.is_dir():
@@ -199,11 +199,21 @@ class Graph:
                     continue
                 referenced = False
                 asset_patterns = [f'(assets/{asset.name})', f'(../assets/{asset.name})']
+                # Check if referenced in content of any public block
                 for hb in publishable_content:
                     content = hb.block.content or ''
                     if any(pat in content for pat in asset_patterns):
                         referenced = True
                         break
+                # Also check if referenced as the 'image' property of any public page
+                if not referenced:
+                    for hb in publishable_content:
+                        block = hb.block
+                        if block.is_page():
+                            image_prop = (block.properties or {}).get('image')
+                            if isinstance(image_prop, str) and image_prop.endswith(asset.name):
+                                referenced = True
+                                break
                 if referenced:
                     shutil.copy2(asset, assets_dst / asset.name)
 
