@@ -23,18 +23,22 @@ class Graph:
 
     def _load_blocks(self, json_path: Path) -> None:
         try:
+            print(f"[logseq-compiler] Loading graph JSON from: {json_path}")
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+            print(f"[logseq-compiler] JSON loaded. Type: {type(data)}")
             if not isinstance(data, list):
                 raise CompilerError('Graph JSON must be a list of blocks')
+            print(f"[logseq-compiler] Processing {len(data)} blocks from JSON...")
             self.blocks = {
                 block_json['db/id']: Block.from_json(block_json)
                 for block_json in data
                 if 'db/id' in block_json and 'block/uuid' in block_json
             }
+            print(f"[logseq-compiler] {len(self.blocks)} valid blocks loaded.")
             # Compute public_registry once here
             self.public_registry = {}
-            def compute_effective_public(block_id, parent_public=None):
+            def compute_effective_public(block_id, parent_public=None, depth=0):
                 block = self.blocks[block_id]
                 if 'public' in block.properties:
                     val = block.properties['public']
@@ -48,11 +52,18 @@ class Graph:
                     effective = False
                 children = [b.id for b in self.blocks.values() if b.parent_id == block_id]
                 self.public_registry[block_id] = effective
+                if depth < 2 or len(children) > 0:
+                    print(f"[logseq-compiler] Block {block_id}: public={effective}, children={len(children)}")
                 for child_id in children:
-                    compute_effective_public(child_id, effective)
-            for block_id in self.blocks:
+                    compute_effective_public(child_id, effective, depth=depth+1)
+            print(f"[logseq-compiler] Computing effective public status for all blocks...")
+            for idx, block_id in enumerate(self.blocks):
+                if idx % 100 == 0 and idx > 0:
+                    print(f"[logseq-compiler] Processed {idx} blocks for public status...")
                 compute_effective_public(block_id)
+            print(f"[logseq-compiler] Done computing public status for all blocks.")
         except Exception as e:
+            print(f"[logseq-compiler] ERROR during block loading: {e}")
             raise CompilerError(f"Failed to load blocks: {e}")
 
     def _calculate_block_hierarchies(self) -> None:

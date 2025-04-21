@@ -21,5 +21,15 @@ lq sq --graph test-notes '[:find (pull ?p [*]) :where (?p :block/uuid ?id)]' | j
 ```
 
 ```sh
-poetry run python -m logseq_compiler ../test-notes/.export/graph.json ../test-notes/assets ../content --assume-public=false
+poetry run python -m logseq_compiler ../test-notes/.export/graph.json ../test-notes/assets ../content
 ``` 
+
+
+full notes testing
+```sh
+lq sq --graph life '[:find (pull ?p [*]) :where (?p :block/uuid ?id)]' | jet --to json > '/Users/deniz/Library/Mobile\ Documents/iCloud~com~logseq~logseq/Documents/life/.export/graph.json'
+```
+
+```sh
+poetry run python -m logseq_compiler /Users/deniz/Library/Mobile\ Documents/iCloud~com~logseq~logseq/Documents/life/.export/graph.json /Users/deniz/Library/Mobile\ Documents/iCloud~com~logseq~logseq/Documents/life/assets ../content
+```
