@@ -1,8 +1,12 @@
 from __future__ import annotations
-from typing import Dict, List, Any, Optional
-from pathlib import Path
+
 import json
+from pathlib import Path
+from typing import Any, Dict, List
+
 from .block import Block
+from .hugoblock import HugoBlock
+
 
 class CompilerError(Exception):
     pass
@@ -40,19 +44,17 @@ class Graph:
             return [block]
         self.block_paths = {
             block_id: notes_folder + "/".join(
-                [b.name or b.original_name or str(b.id) for b in all_ancestors(block)]
+                [b.path_component() for b in all_ancestors(block)]
             )
             for block_id, block in self.blocks.items()
         }
 
     def export_for_hugo(self, assume_public: bool = False) -> None:
         import shutil
-        import yaml
         from pathlib import Path
 
         def is_public(block: Block) -> bool:
             props = block.properties or {}
-            # By default, require public:: true, unless assume_public is set
             if assume_public:
                 return not (str(props.get('public', 'true')).lower() == 'false')
             return str(props.get('public', 'false')).lower() == 'true'
@@ -66,30 +68,92 @@ class Graph:
             elif item.is_dir():
                 shutil.rmtree(item)
 
-        # Filter public blocks
-        public_blocks = [block for block in self.blocks.values() if is_public(block)]
+        # Build all_content as HugoBlock objects
+        all_content = [HugoBlock(block, self.blocks) for block in self.blocks.values() if block.showable()]
 
-        # Export each public block as a Markdown file
-        for block in public_blocks:
-            path_parts = self.block_paths.get(block.id, f"graph/{block.id}").split('/')
-            # Use block name or id for filename
-            filename = (block.name or block.original_name or str(block.id)) + ".md"
-            # Directory for the block
-            dir_path = self.destination_folder.joinpath(*path_parts[:-1])
+        # Build effective public registry (inheritance-based)
+        def compute_effective_public(block_id, parent_public=None):
+            block = self.blocks[block_id]
+            if 'public' in block.properties:
+                val = block.properties['public']
+                # Accept bool or string values
+                if isinstance(val, bool):
+                    effective = val
+                else:
+                    effective = str(val).lower() == 'true'
+            elif parent_public is not None:
+                effective = parent_public
+            else:
+                # Top-level (page): use assume_public
+                effective = assume_public
+            # Recurse for children
+            children = [b.id for b in self.blocks.values() if b.parent_id == block_id]
+            registry[block_id] = effective
+            for child_id in children:
+                compute_effective_public(child_id, effective)
+        registry = {}
+        # Start recursion at all top-level pages
+        top_level_blocks = [b.id for b in self.blocks.values() if b.parent_id is None]
+        for block_id in top_level_blocks:
+            compute_effective_public(block_id)
+        public_registry = registry
+
+        # Remove private links
+        publishable_content = [hb.remove_private_links(public_registry) for hb in all_content if public_registry.get(hb.block.id, False)]
+
+        # Debug printout of block_paths for all publishable blocks
+        print("\n[DEBUG] Export paths for all publishable blocks:")
+        for hb in publishable_content:
+            path = self.block_paths.get(hb.block.id, None)
+            print(f"Block ID: {hb.block.id}, Type: {'page' if hb.block.is_page() else 'block'}, Path: {path}")
+
+        # Export home page
+        home_page = next((hb for hb in publishable_content if hb.is_home()), None)
+        if home_page:
+            dir_path = self.destination_folder
             dir_path.mkdir(parents=True, exist_ok=True)
-            file_path = dir_path / filename
-
-            # YAML front matter
-            front_matter = {
-                'id': block.id,
-                'uuid': block.uuid,
-                'created_at': block.created_at,
-                'updated_at': block.updated_at,
-                'properties': block.properties,
-            }
-            yaml_str = yaml.safe_dump(front_matter, sort_keys=False, allow_unicode=True)
-            content = block.content or ""
-
-            # Write to file
+            file_path = dir_path / '_index.md'
             with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(f"---\n{yaml_str}---\n\n{content}\n")
+                f.write(home_page.file(public_registry=public_registry))
+
+        # Export pages (excluding home)
+        notes_folder = self.destination_folder / 'graph'
+        notes_folder.mkdir(parents=True, exist_ok=True)
+        for hb in publishable_content:
+            if hb.is_home():
+                continue
+            if hb.block.is_page():
+                # Use precomputed, slugified path for the page
+                page_path = Path(self.block_paths[hb.block.id])
+                page_dir = self.destination_folder / page_path
+                page_dir.mkdir(parents=True, exist_ok=True)
+                file_path = page_dir / '_index.md'
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(hb.file(public_registry=public_registry))
+            else:
+                # Export block as markdown in its hierarchy (match Swift: use block_paths for all blocks)
+                block_path = Path(self.block_paths[hb.block.id])
+                block_dir = self.destination_folder / block_path
+                block_dir.mkdir(parents=True, exist_ok=True)
+                file_path = block_dir / '_index.md'
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(hb.file(public_registry=public_registry))
+
+        # Asset copying logic (optional, minimal for now)
+        # TODO: Copy only assets referenced by public blocks, as in Swift
+        assets_src = self.assets_folder
+        assets_dst = self.destination_folder / 'assets'
+        if assets_src.exists() and assets_src.is_dir():
+            assets_dst.mkdir(parents=True, exist_ok=True)
+            for asset in assets_src.iterdir():
+                if asset.is_file():
+                    shutil.copy2(asset, assets_dst / asset.name)
+
+def path_component(block: Block) -> str:
+    return block.name or block.original_name or str(block.id)
+
+def all_ancestors(block: Block, blocks: Dict[int, Block]) -> List[Block]:
+    parent = blocks.get(block.parent_id) if block.parent_id else None
+    if parent:
+        return all_ancestors(parent, blocks) + [block]
+    return [block]

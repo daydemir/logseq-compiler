@@ -4,6 +4,25 @@ from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 @dataclass(frozen=True)
 class Block:
+    # ... existing fields ...
+
+    def is_page(self) -> bool:
+        return self.page_id is None and self.parent_id is None
+
+    def is_public(self, assume_public: bool = False) -> bool:
+        if assume_public:
+            if 'public' in self.properties:
+                return bool(self.properties.get('public'))
+            else:
+                return True
+        else:
+            return bool(self.properties.get('public', False))
+
+    def showable(self) -> bool:
+        content = (self.content or '').strip()
+        is_not_page_properties_and_has_content = not self.preblock and len(content) > 0
+        return self.is_page() or is_not_page_properties_and_has_content
+
     uuid: str
     id: int
     name: Optional[str] = None
