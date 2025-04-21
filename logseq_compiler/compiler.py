@@ -189,14 +189,22 @@ class Graph:
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(hb.file(public_registry=public_registry))
 
-        # Asset copying logic (optional, minimal for now)
-        # TODO: Copy only assets referenced by public blocks, as in Swift
+        # Asset copying logic: copy only assets referenced by public blocks (no regex)
         assets_src = self.assets_folder
         assets_dst = self.destination_folder / 'assets'
         if assets_src.exists() and assets_src.is_dir():
             assets_dst.mkdir(parents=True, exist_ok=True)
             for asset in assets_src.iterdir():
-                if asset.is_file():
+                if not asset.is_file():
+                    continue
+                referenced = False
+                asset_patterns = [f'(assets/{asset.name})', f'(../assets/{asset.name})']
+                for hb in publishable_content:
+                    content = hb.block.content or ''
+                    if any(pat in content for pat in asset_patterns):
+                        referenced = True
+                        break
+                if referenced:
                     shutil.copy2(asset, assets_dst / asset.name)
 
 def path_component(block: Block) -> str:
