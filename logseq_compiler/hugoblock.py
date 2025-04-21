@@ -1,8 +1,9 @@
-from typing import Dict, Any, List, Optional
-from .block import Block
 import re
+from typing import Any, Dict, List, Optional
 
-REDACTED_TEXT = '[redacted 😶‍🌫️]'
+from .block import Block
+
+REDACTED_TEXT = 'redacted 😶‍🌫️'
 
 def get_display_text(block: Block, blocks: Dict[int, Block], public_registry: dict = None) -> str:
     """
@@ -31,15 +32,30 @@ def slugify(value: str) -> str:
 # Move path_component to Block, matching Swift
 from urllib.parse import quote
 
+
 def percent_encode(value: str) -> str:
     # For fallback, similar to Swift's percent encoding
     return quote(value, safe='')
 
 
 # Add to Block:
-setattr(Block, 'path_component', lambda self: (
-    slugify(self.name or self.original_name or str(self.id)) if self.is_page() else self.uuid
-))
+def _path_component(self, public_registry=None, context_block=None):
+    # Public page: slugified name
+    if self.is_page():
+        is_public = False
+        if public_registry is not None and hasattr(self, 'id'):
+            is_public = public_registry.get(self.id, False)
+        else:
+            # fallback to property
+            is_public = getattr(self, 'properties', {}).get('public', False)
+        if is_public:
+            return slugify(self.name or self.original_name or str(self.id))
+        else:
+            return self.uuid
+    # Any block (public or private): uuid
+    return self.uuid
+setattr(Block, 'path_component', _path_component)
+
 
 def is_home(block: Block) -> bool:
     return bool(block.properties.get('home', False))
@@ -101,7 +117,7 @@ class HugoBlock:
         if not block:
             return ''
         ancestors = all_ancestors(block, self.blocks)
-        return '/'.join([b.path_component() for b in ancestors])
+        return 'graph/' + '/'.join([b.path_component() for b in ancestors])
 
     def hugo_properties(self, public_registry=None) -> Dict[str, Any]:
         props = {}
@@ -169,8 +185,13 @@ def update_shortcodes(content: str) -> str:
     return content
 
 def update_asset_links(content: str) -> str:
-    # Minimal: replace asset links if needed for Hugo
-    # (Extend as needed for your asset conventions)
+    # Rewrite asset links to use /assets/... (site root) instead of relative or content/assets
+    def asset_repl(m):
+        alt, filename = m.group(1), m.group(2)
+        return f'![{alt}](/assets/{filename})'
+    # Replace ![alt](../assets/filename) and ![alt](assets/filename)
+    content = re.sub(r'!\[(.*?)\]\(\.\./assets/([^\)]+)\)', asset_repl, content)
+    content = re.sub(r'!\[(.*?)\]\(assets/([^\)]+)\)', asset_repl, content)
     return content
 
 def update_links(content: str, link_paths: dict, blocks: dict, public_registry=None) -> str:
@@ -182,6 +203,8 @@ def update_links(content: str, link_paths: dict, blocks: dict, public_registry=N
                 path = link_paths.get(b.id)
                 if path:
                     link_text = get_display_text(b, blocks, public_registry)
+                    if link_text == REDACTED_TEXT:
+                        return f'[{REDACTED_TEXT}](-)'
                     return f'[{link_text}]({path})'
         return m.group(0)
     def block_link_repl(m):
@@ -191,10 +214,12 @@ def update_links(content: str, link_paths: dict, blocks: dict, public_registry=N
                 path = link_paths.get(b.id)
                 if path:
                     link_text = get_display_text(b, blocks, public_registry)
+                    if link_text == REDACTED_TEXT:
+                        return f'[{REDACTED_TEXT}](-)'
                     return f'[{link_text}]({path})'
         return m.group(0)
-    # Handle both [[Page Name]] and ((block-uuid))
     content = re.sub(r'\[\[([^\]]+)\]\]', page_link_repl, content)
     content = re.sub(r'\(\(([^\)]+)\)\)', block_link_repl, content)
     return content
+
 

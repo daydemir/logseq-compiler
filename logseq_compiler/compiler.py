@@ -32,6 +32,26 @@ class Graph:
                 for block_json in data
                 if 'db/id' in block_json and 'block/uuid' in block_json
             }
+            # Compute public_registry once here
+            self.public_registry = {}
+            def compute_effective_public(block_id, parent_public=None):
+                block = self.blocks[block_id]
+                if 'public' in block.properties:
+                    val = block.properties['public']
+                    if isinstance(val, bool):
+                        effective = val
+                    else:
+                        effective = str(val).lower() == 'true'
+                elif parent_public is not None:
+                    effective = parent_public
+                else:
+                    effective = False
+                children = [b.id for b in self.blocks.values() if b.parent_id == block_id]
+                self.public_registry[block_id] = effective
+                for child_id in children:
+                    compute_effective_public(child_id, effective)
+            for block_id in self.blocks:
+                compute_effective_public(block_id)
         except Exception as e:
             raise CompilerError(f"Failed to load blocks: {e}")
 
@@ -42,9 +62,32 @@ class Graph:
             if parent:
                 return all_ancestors(parent) + [block]
             return [block]
+        # Compute public_registry before calculating paths
+        public_registry = {}
+        def compute_effective_public(block_id, parent_public=None):
+            block = self.blocks[block_id]
+            if 'public' in block.properties:
+                val = block.properties['public']
+                # Accept bool or string values
+                if isinstance(val, bool):
+                    effective = val
+                else:
+                    effective = str(val).lower() == 'true'
+            elif parent_public is not None:
+                effective = parent_public
+            else:
+                # Top-level (page): default private
+                effective = False
+            # Recurse for children
+            children = [b.id for b in self.blocks.values() if b.parent_id == block_id]
+            public_registry[block_id] = effective
+            for child_id in children:
+                compute_effective_public(child_id, effective)
+        for block_id in self.blocks:
+            compute_effective_public(block_id)
         self.block_paths = {
             block_id: notes_folder + "/".join(
-                [b.path_component() for b in all_ancestors(block)]
+                [b.path_component(self.public_registry) for b in all_ancestors(block)]
             )
             for block_id, block in self.blocks.items()
         }
