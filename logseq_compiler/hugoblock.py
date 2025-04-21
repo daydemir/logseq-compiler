@@ -147,6 +147,17 @@ class HugoBlock:
     def hugo_yaml(self, public_registry=None) -> str:
         import yaml
         yaml_props = dict(self.block.properties)
+        # If this is a page and url is external, use external-url
+        if self.block.is_page() and 'url' in yaml_props:
+            url_val = yaml_props['url']
+            if isinstance(url_val, str) and (url_val.startswith('http://') or url_val.startswith('https://')):
+                yaml_props['external-url'] = url_val
+                del yaml_props['url']
+        # Fix location property: remove extraneous quotes
+        if 'location' in yaml_props and isinstance(yaml_props['location'], str):
+            loc = yaml_props['location']
+            if (loc.startswith('"') and loc.endswith('"')) or (loc.startswith("'") and loc.endswith("'")):
+                yaml_props['location'] = loc[1:-1]
         yaml_props.update(self.hugo_properties(public_registry=public_registry))
         return yaml.safe_dump(yaml_props, sort_keys=False, allow_unicode=True)
 
