@@ -1,6 +1,24 @@
 from typing import Dict, Any, List, Optional
 from .block import Block
 import re
+
+REDACTED_TEXT = '[redacted 😶‍🌫️]'
+
+def get_display_text(block: Block, blocks: Dict[int, Block], public_registry: dict = None) -> str:
+    """
+    Returns the display text for a block or page, redacting if private.
+    """
+    is_public = public_registry.get(block.id, False) if public_registry else False
+    if is_public:
+        if block.is_page():
+            return block.original_name or block.name or ''
+        else:
+            content = (block.content or '').replace('"', '\"')
+            first_line = content.split('\n', 1)[0]
+            return first_line if first_line else '[block]'
+    else:
+        return REDACTED_TEXT
+
 def slugify(value: str) -> str:
     import re
     value = value.lower()
@@ -54,21 +72,9 @@ def namespace(block: Block, blocks: Dict[int, Block]) -> Optional[Block]:
     return None
 
 def readable_name(block: Block, blocks: Dict[int, Block], public_registry: dict = None) -> str:
-    # Check if block is public
-    is_public = block.is_public() if hasattr(block, 'is_public') else False
-    name_visible = block.properties.get('name-visible', 'false').lower() == 'true' if hasattr(block, 'properties') else False
-    if is_public or name_visible:
-        if block.is_page():
-            return (block.original_name or block.name or '').replace('"', '\"')
-        else:
-            content = (block.content or '').replace('"', '\"')
-            max_len = 100
-            first_line = content.split('\n', 1)[0]
-            if len(first_line) > max_len:
-                return ' '.join(first_line[:max_len-3].split(' ')[:-1]) + '...'
-            return first_line
-    else:
-        return '[redacted 😶‍🌫️]'
+    # Deprecated: Use get_display_text instead
+    return get_display_text(block, blocks, public_registry)
+
 
 def readable_name_hover(block: Block) -> str:
     name_visible = block.properties.get('name-visible', 'false').lower() == 'true' if hasattr(block, 'properties') else False
@@ -115,7 +121,7 @@ class HugoBlock:
         props['logseq-type'] = 'page' if self.block.is_page() else 'block'
         props['weight'] = self.sibling_index
         # Always add title, matching Swift logic
-        title = readable_name(self.block, self.blocks) or "Untitled"
+        title = get_display_text(self.block, self.blocks, public_registry) or "Untitled"
         props['title'] = title
         hover = readable_name_hover(self.block)
         if hover:
@@ -175,7 +181,7 @@ def update_links(content: str, link_paths: dict, blocks: dict, public_registry=N
             if b.name == name or b.original_name == name:
                 path = link_paths.get(b.id)
                 if path:
-                    link_text = readable_name(b, blocks, public_registry)
+                    link_text = get_display_text(b, blocks, public_registry)
                     return f'[{link_text}]({path})'
         return m.group(0)
     def block_link_repl(m):
@@ -184,10 +190,11 @@ def update_links(content: str, link_paths: dict, blocks: dict, public_registry=N
             if b.uuid == uuid:
                 path = link_paths.get(b.id)
                 if path:
-                    link_text = readable_name(b, blocks, public_registry)
+                    link_text = get_display_text(b, blocks, public_registry)
                     return f'[{link_text}]({path})'
         return m.group(0)
     # Handle both [[Page Name]] and ((block-uuid))
     content = re.sub(r'\[\[([^\]]+)\]\]', page_link_repl, content)
     content = re.sub(r'\(\(([^\)]+)\)\)', block_link_repl, content)
     return content
+
