@@ -98,8 +98,15 @@ class Graph:
             compute_effective_public(block_id)
         public_registry = registry
 
-        # Remove private links
-        publishable_content = [hb.remove_private_links(public_registry) for hb in all_content if public_registry.get(hb.block.id, False)]
+        # Diagnostic: print all pages and their effective public status
+        print("\n[DEBUG] Page public status:")
+        for block in self.blocks.values():
+            if block.is_page():
+                name = block.name or block.original_name or str(block.id)
+                print(f"Page ID: {block.id}, Name: {name}, public: {public_registry.get(block.id, None)}")
+
+        # Only include public blocks
+        publishable_content = [hb for hb in all_content if public_registry.get(hb.block.id, False)]
 
         # Debug printout of block_paths for all publishable blocks
         print("\n[DEBUG] Export paths for all publishable blocks:")

@@ -128,55 +128,12 @@ class HugoBlock:
         yaml_props.update(self.hugo_properties(public_registry=public_registry))
         return yaml.safe_dump(yaml_props, sort_keys=False, allow_unicode=True)
 
-    def remove_private_links(self, public_registry: Dict[int, bool]) -> 'HugoBlock':
-        # Redact links to private blocks/pages
-        content = self.block.content or ''
-        def redact(match):
-            name = match.group(1)
-            uid = match.group(2)
-            if name:
-                for b in self.blocks.values():
-                    if b.name == name or b.original_name == name:
-                        if not public_registry.get(b.id, False):
-                            return '[REDACTED]'
-                return match.group(0)
-            if uid:
-                for b in self.blocks.values():
-                    if b.uuid == uid:
-                        if not public_registry.get(b.id, False):
-                            return '[REDACTED]'
-                return match.group(0)
-            return match.group(0)
-        content = re.sub(r'\[\[([^\]]+)\]\]|\(\(([^\)]+)\)\)', redact, content)
-        # Return a new HugoBlock with redacted content
-        new_block = Block(
-            uuid=self.block.uuid,
-            id=self.block.id,
-            name=self.block.name,
-            original_name=self.block.original_name,
-            content=content,
-            page_id=self.block.page_id,
-            parent_id=self.block.parent_id,
-            left_id=self.block.left_id,
-            namespace_id=self.block.namespace_id,
-            properties=self.block.properties,
-            preblock=self.block.preblock,
-            format=self.block.format,
-            collapsed=self.block.collapsed,
-            updated_at=self.block.updated_at,
-            created_at=self.block.created_at,
-            linked_ids=self.block.linked_ids,
-            inherited_linked_ids=self.block.inherited_linked_ids,
-            alias_ids=self.block.alias_ids
-        )
-        return HugoBlock(new_block, self.blocks)
-
     def file(self, public_registry=None) -> str:
         yaml_header = self.hugo_yaml(public_registry=public_registry)
         content = self.block.content or ''
         # Apply all content transformations in Hugo order
         content = update_asset_links(content)
-        content = update_links(content, self.link_paths, self.blocks)
+        content = update_links(content, self.link_paths, self.blocks, public_registry=public_registry)
         content = update_shortcodes(content)
         content = update_block_properties(content)
         return f"---\n{yaml_header}---\n\n{content}\n"
@@ -210,23 +167,25 @@ def update_asset_links(content: str) -> str:
     # (Extend as needed for your asset conventions)
     return content
 
-def update_links(content: str, link_paths: dict, blocks: dict) -> str:
-    # Replace [[Page Name]] and ((block-uuid)) with Hugo paths if public
+def update_links(content: str, link_paths: dict, blocks: dict, public_registry=None) -> str:
+    # Replace [[Page Name]] and ((block-uuid)) with Hugo paths and correct redacted names
     def page_link_repl(m):
         name = m.group(1)
         for b in blocks.values():
             if b.name == name or b.original_name == name:
                 path = link_paths.get(b.id)
                 if path:
-                    return f'[{name}]({path})'
+                    link_text = readable_name(b, blocks, public_registry)
+                    return f'[{link_text}]({path})'
         return m.group(0)
     def block_link_repl(m):
-        uuid = m.group(2)
+        uuid = m.group(1)
         for b in blocks.values():
             if b.uuid == uuid:
                 path = link_paths.get(b.id)
                 if path:
-                    return f'[block]({path})'
+                    link_text = readable_name(b, blocks, public_registry)
+                    return f'[{link_text}]({path})'
         return m.group(0)
     # Handle both [[Page Name]] and ((block-uuid))
     content = re.sub(r'\[\[([^\]]+)\]\]', page_link_repl, content)
