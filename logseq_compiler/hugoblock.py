@@ -136,7 +136,8 @@ class HugoBlock:
             props['links'] = list(self.link_paths.values())
         props['collapsed'] = self.block.collapsed
         props['logseq-type'] = 'page' if self.block.is_page() else 'block'
-        props['weight'] = self.sibling_index
+        if 'weight' in self.block.properties:
+            props['weight'] = self.block.properties['weight']
         # Always add title, matching Swift logic
         title = get_display_text(self.block, self.blocks, public_registry) or "Untitled"
         props['title'] = title
@@ -148,12 +149,14 @@ class HugoBlock:
     def hugo_yaml(self, public_registry=None) -> str:
         import yaml
         yaml_props = dict(self.block.properties)
-        # If this is a page and url is external, use external-url
-        if self.block.is_page() and 'url' in yaml_props:
-            url_val = yaml_props['url']
-            if isinstance(url_val, str) and (url_val.startswith('http://') or url_val.startswith('https://')):
-                yaml_props['external-url'] = url_val
-                del yaml_props['url']
+        # Move 'links' to 'external-links' for Hugo (leave value unchanged)
+        if 'links' in yaml_props:
+            yaml_props['external-links'] = yaml_props['links']
+            del yaml_props['links']
+        # Always move 'url' to 'external-url' for Hugo compatibility
+        if 'url' in yaml_props:
+            yaml_props['external-url'] = yaml_props['url']
+            del yaml_props['url']
         # Fix location property: remove extraneous quotes
         if 'location' in yaml_props and isinstance(yaml_props['location'], str):
             loc = yaml_props['location']

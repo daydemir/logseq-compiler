@@ -202,7 +202,7 @@ class Graph:
 
         print("[logseq-compiler] [export] ENTER: Filtering publishable (public) content...")
         t_filter = time.time()
-        publishable_content = [hb for hb in all_content if is_public(hb.block)]
+        publishable_content = [hb for hb in all_content if public_registry.get(hb.block.id, False)]
         print(f"[logseq-compiler] [export] Found {len(publishable_content)} publishable blocks/pages.")
         print(f"[logseq-compiler] [export] EXIT: Filtering publishable content. Time elapsed: {time.time() - t_filter:.2f}s")
 
@@ -231,15 +231,10 @@ class Graph:
             path = self.block_paths.get(hb.block.id, None)
             if not path:
                 continue
-            if hb.block.is_page():
-                # For pages: create a folder and write _index.md
-                page_dir = self.destination_folder / path
-                page_dir.mkdir(parents=True, exist_ok=True)
-                file_path = page_dir / '_index.md'
-            else:
-                # For blocks: write as .md file
-                file_path = self.destination_folder / (path + '.md')
-                file_path.parent.mkdir(parents=True, exist_ok=True)
+            # For both pages and blocks: create a folder and write _index.md
+            block_dir = self.destination_folder / path
+            block_dir.mkdir(parents=True, exist_ok=True)
+            file_path = block_dir / '_index.md'
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(hb.file(public_registry=self.public_registry))
             if (i+1) % 500 == 0:
@@ -251,6 +246,7 @@ class Graph:
         # Asset copying logic: copy only assets referenced by public blocks or as the 'image' property of a public page (no regex)
         assets_src = self.assets_folder
         assets_dst = self.destination_folder / 'assets'
+        referenced_assets = []
         if assets_src.exists() and assets_src.is_dir():
             assets_dst.mkdir(parents=True, exist_ok=True)
             for asset in assets_src.iterdir():
@@ -274,7 +270,10 @@ class Graph:
                                 referenced = True
                                 break
                 if referenced:
-                    shutil.copy2(asset, assets_dst / asset.name)
+                    referenced_assets.append(asset)
+            print(f"[logseq-compiler] [export] Found {len(referenced_assets)} public assets to copy.")
+            for asset in referenced_assets:
+                shutil.copy2(asset, assets_dst / asset.name)
         print(f"[logseq-compiler] [export] EXIT: Done copying referenced assets. Time elapsed: {time.time() - t_assets:.2f}s")
 
         print(f"[logseq-compiler] [export] DONE. Total export_for_hugo time elapsed: {time.time() - t_process_start:.2f}s")
