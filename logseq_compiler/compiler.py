@@ -36,6 +36,30 @@ class Graph:
                 if 'db/id' in block_json and 'block/uuid' in block_json
             }
             print(f"[logseq-compiler] {len(self.blocks)} valid blocks loaded.")
+
+            # Precompute backlinks, aliases, links, and sibling_index for all blocks
+            self.backlinks_map = {block_id: [] for block_id in self.blocks}
+            self.aliases_map = {block_id: [] for block_id in self.blocks}
+            self.links_map = {block_id: [] for block_id in self.blocks}
+            self.sibling_index_map = {}
+            # Build backlinks and links
+            for b in self.blocks.values():
+                for linked_id in getattr(b, 'linked_ids', []):
+                    if linked_id in self.blocks:
+                        self.links_map[b.id].append(linked_id)
+                        self.backlinks_map[linked_id].append(b.id)
+                for alias_id in getattr(b, 'alias_ids', []):
+                    if alias_id in self.blocks:
+                        self.aliases_map[b.id].append(alias_id)
+            # Build sibling_index: for each block, count siblings to the left
+            parent_to_children = {}
+            for b in self.blocks.values():
+                parent_to_children.setdefault(b.parent_id, []).append(b)
+            for siblings in parent_to_children.values():
+                siblings_sorted = sorted(siblings, key=lambda b: getattr(b, 'left_id', None) or 0)
+                for idx, b in enumerate(siblings_sorted):
+                    self.sibling_index_map[b.id] = idx
+
             # Compute public_registry once here
             self.public_registry = {}
             import time
@@ -104,7 +128,7 @@ class Graph:
         from pathlib import Path
         import time
         print("[logseq-compiler] [export] Starting export_for_hugo...")
-        t0 = time.time()
+        t_process_start = time.time()
 
         def is_public(block: Block) -> bool:
             props = block.properties or {}
@@ -131,15 +155,37 @@ class Graph:
         print(f"[logseq-compiler] [export] Done preparing destination. Deleted {deleted} items. Time elapsed: {time.time() - t_prep:.2f}s")
 
         print("[logseq-compiler] [export] ENTER: Building all_content as HugoBlock objects...")
-        all_content = [HugoBlock(block, self.blocks) for block in self.blocks.values() if block.showable()]
-        print("[logseq-compiler] [export] EXIT: Built all_content.")
+        t_allcontent = time.time()
+        all_content = [
+            HugoBlock(
+                block,
+                self.blocks,
+                backlinks=self.backlinks_map.get(block.id, []),
+                aliases=self.aliases_map.get(block.id, []),
+                links=self.links_map.get(block.id, []),
+                sibling_index=self.sibling_index_map.get(block.id, 0)
+            )
+            for block in self.blocks.values() if block.showable()
+        ]
+        print(f"[logseq-compiler] [export] EXIT: Built all_content. Time elapsed: {time.time() - t_allcontent:.2f}s")
 
         print("[logseq-compiler] [export] ENTER: Building effective public_registry...")
-        def compute_effective_public(block_id, parent_public=None):
+        t_pubreg = time.time()
+        # Efficient single-pass: build parent->children map
+        parent_to_children = {}
+        for b in self.blocks.values():
+            parent_to_children.setdefault(b.parent_id, []).append(b.id)
+        # Use explicit stack for DFS, avoid repeated children lookups
+        registry = {}
+        stack = []
+        # Start with top-level blocks
+        for block_id in [b.id for b in self.blocks.values() if b.parent_id is None]:
+            stack.append((block_id, assume_public))
+        while stack:
+            block_id, parent_public = stack.pop()
             block = self.blocks[block_id]
             if 'public' in block.properties:
                 val = block.properties['public']
-                # Accept bool or string values
                 if isinstance(val, bool):
                     effective = val
                 else:
@@ -147,28 +193,21 @@ class Graph:
             elif parent_public is not None:
                 effective = parent_public
             else:
-                # Top-level (page): use assume_public
                 effective = assume_public
-            # Recurse for children
-            children = [b.id for b in self.blocks.values() if b.parent_id == block_id]
             registry[block_id] = effective
-            for child_id in children:
-                compute_effective_public(child_id, effective)
-        registry = {}
-        # Start recursion at all top-level pages
-        top_level_blocks = [b.id for b in self.blocks.values() if b.parent_id is None]
-        for block_id in top_level_blocks:
-            compute_effective_public(block_id)
+            for child_id in parent_to_children.get(block_id, []):
+                stack.append((child_id, effective))
         public_registry = registry
-        print("[logseq-compiler] [export] EXIT: Built effective public_registry.")
+        print(f"[logseq-compiler] [export] EXIT: Built effective public_registry. Time elapsed: {time.time() - t_pubreg:.2f}s")
 
         print("[logseq-compiler] [export] ENTER: Filtering publishable (public) content...")
-        t0 = time.time()
+        t_filter = time.time()
         publishable_content = [hb for hb in all_content if is_public(hb.block)]
         print(f"[logseq-compiler] [export] Found {len(publishable_content)} publishable blocks/pages.")
-        print("[logseq-compiler] [export] EXIT: Filtering publishable content.")
+        print(f"[logseq-compiler] [export] EXIT: Filtering publishable content. Time elapsed: {time.time() - t_filter:.2f}s")
 
         print("[logseq-compiler] [export] ENTER: Exporting home page...")
+        t_home = time.time()
         home_page = next((hb for hb in publishable_content if hb.is_home()), None)
         if home_page:
             dir_path = self.destination_folder
@@ -176,7 +215,7 @@ class Graph:
             file_path = dir_path / '_index.md'
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(home_page.file(public_registry=self.public_registry))
-        print(f"[logseq-compiler] [export] EXIT: Done exporting home page. Time elapsed: {time.time() - t0:.2f}s")
+        print(f"[logseq-compiler] [export] EXIT: Done exporting home page. Time elapsed: {time.time() - t_home:.2f}s")
 
         print("[logseq-compiler] [export] ENTER: Preparing notes_folder for export...")
         t_notes = time.time()
@@ -208,6 +247,7 @@ class Graph:
         print(f"[logseq-compiler] [export] EXIT: Done exporting pages/blocks. Time elapsed: {time.time() - t_pages:.2f}s")
 
         print("[logseq-compiler] [export] ENTER: Copying referenced assets...")
+        t_assets = time.time()
         # Asset copying logic: copy only assets referenced by public blocks or as the 'image' property of a public page (no regex)
         assets_src = self.assets_folder
         assets_dst = self.destination_folder / 'assets'
@@ -235,7 +275,9 @@ class Graph:
                                 break
                 if referenced:
                     shutil.copy2(asset, assets_dst / asset.name)
-        print("[logseq-compiler] [export] EXIT: Done copying referenced assets.")
+        print(f"[logseq-compiler] [export] EXIT: Done copying referenced assets. Time elapsed: {time.time() - t_assets:.2f}s")
+
+        print(f"[logseq-compiler] [export] DONE. Total export_for_hugo time elapsed: {time.time() - t_process_start:.2f}s")
 
 def path_component(block: Block) -> str:
     return block.name or block.original_name or str(block.id)

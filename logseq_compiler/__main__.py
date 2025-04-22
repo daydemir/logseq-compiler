@@ -3,6 +3,8 @@ from pathlib import Path
 from logseq_compiler.compiler import Graph, CompilerError
 
 def main() -> None:
+    import time
+    t_compiler_start = time.time()
     parser = argparse.ArgumentParser(
         description="logseq-compiler: Convert Logseq JSON exports to Hugo-compatible Markdown."
     )
@@ -28,6 +30,8 @@ def main() -> None:
         print(f"Error: {ce}")
     except Exception as e:
         print(f"Unexpected error: {e}")
+    finally:
+        print(f"[logseq-compiler] [main] DONE. Total compiler time elapsed: {time.time() - t_compiler_start:.2f}s")
 
 if __name__ == "__main__":
     main()

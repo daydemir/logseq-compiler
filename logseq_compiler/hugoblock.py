@@ -99,15 +99,16 @@ def readable_name_hover(block: Block) -> str:
     return 'this block has not yet been made public by the author'
 
 class HugoBlock:
-    def __init__(self, block: Block, blocks: Dict[int, Block]):
+    def __init__(self, block: Block, blocks: Dict[int, Block], backlinks=None, aliases=None, links=None, sibling_index=0):
         self.block = block
         self.blocks = blocks
-        self.backlink_paths = {b.id: self.path_for(b) for b in backlinks(block, blocks)}
-        self.alias_paths = {b.id: self.path_for(b) for b in aliases(block, blocks)}
+        # backlinks, aliases, links are lists of block ids
+        self.backlink_paths = {bid: self.path_for(blocks[bid]) for bid in backlinks or []}
+        self.alias_paths = {bid: self.path_for(blocks[bid]) for bid in aliases or []}
         ns = namespace(block, blocks)
         self.namespace_path = self.path_for(ns) if ns else None
-        self.link_paths = {b.id: self.path_for(b) for b in links(block, blocks)}
-        self.sibling_index = sibling_index(block, blocks)
+        self.link_paths = {bid: self.path_for(blocks[bid]) for bid in links or []}
+        self.sibling_index = sibling_index
 
 
     def is_home(self) -> bool:
