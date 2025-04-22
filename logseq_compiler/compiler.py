@@ -56,9 +56,26 @@ class Graph:
             for b in self.blocks.values():
                 parent_to_children.setdefault(b.parent_id, []).append(b)
             for siblings in parent_to_children.values():
-                siblings_sorted = sorted(siblings, key=lambda b: getattr(b, 'left_id', None) or 0, reverse=True)
-                for idx, b in enumerate(siblings_sorted):
-                    self.sibling_index_map[b.id] = idx
+                id_to_block = {b.id: b for b in siblings}
+                left_id_to_block = {b.left_id: b for b in siblings if b.left_id is not None}
+                sibling_ids = set(id_to_block)
+                # Heads: left_id is None or not among sibling ids
+                heads = [b for b in siblings if b.left_id is None or b.left_id not in sibling_ids]
+                visited = set()
+                idx = 0
+                # Traverse from each head
+                for head in heads:
+                    current = head
+                    while current and current.id not in visited:
+                        self.sibling_index_map[current.id] = idx
+                        visited.add(current.id)
+                        current = left_id_to_block.get(current.id)
+                        idx += 1
+                # Orphans: assign index to any unvisited sibling
+                for b in siblings:
+                    if b.id not in visited:
+                        self.sibling_index_map[b.id] = idx
+                        idx += 1
 
             # Compute public_registry once here
             self.public_registry = {}

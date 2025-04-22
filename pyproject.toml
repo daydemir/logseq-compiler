@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "logseq-compiler"
-version = "0.1.1"
+version = "0.1.2"
 description = "Convert Logseq JSON exports into Hugo-compatible Markdown."
 authors = ["Deniz Aydemir <deniz@aydemir.us>"]
 packages = [{ include = "logseq_compiler" }]
