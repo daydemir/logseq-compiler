@@ -56,7 +56,7 @@ class Graph:
             for b in self.blocks.values():
                 parent_to_children.setdefault(b.parent_id, []).append(b)
             for siblings in parent_to_children.values():
-                siblings_sorted = sorted(siblings, key=lambda b: getattr(b, 'left_id', None) or 0)
+                siblings_sorted = sorted(siblings, key=lambda b: getattr(b, 'left_id', None) or 0, reverse=True)
                 for idx, b in enumerate(siblings_sorted):
                     self.sibling_index_map[b.id] = idx
 
@@ -125,8 +125,8 @@ class Graph:
 
     def export_for_hugo(self, assume_public: bool = False) -> None:
         import shutil
-        from pathlib import Path
         import time
+        from pathlib import Path
         print("[logseq-compiler] [export] Starting export_for_hugo...")
         t_process_start = time.time()
 

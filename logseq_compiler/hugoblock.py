@@ -136,8 +136,7 @@ class HugoBlock:
             props['links'] = list(self.link_paths.values())
         props['collapsed'] = self.block.collapsed
         props['logseq-type'] = 'page' if self.block.is_page() else 'block'
-        if 'weight' in self.block.properties:
-            props['weight'] = self.block.properties['weight']
+        props['weight'] = self.sibling_index + 1
         # Always add title, matching Swift logic
         title = get_display_text(self.block, self.blocks, public_registry) or "Untitled"
         props['title'] = title
