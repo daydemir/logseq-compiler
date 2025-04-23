@@ -5,18 +5,43 @@ from .block import Block
 
 REDACTED_TEXT = 'redacted 😶‍🌫️'
 
+def truncated_title(block: Block) -> str:
+    """
+    Truncate block content or name for title, matching Swift logic.
+    """
+    max_character_count = 100
+    if block.is_page():
+        title = block.original_name or block.name or ''
+        return title.replace('"', '\"')
+    else:
+        content = (block.content or '')
+        content = content.replace('"', '\"')
+        if '\n' not in content and len(content) < max_character_count:
+            trimmed_content = content
+        else:
+            first_line = content.split('\n', 1)[0]
+            if len(first_line) > max_character_count:
+                # Find last space before max_character_count-3
+                cutoff = max_character_count - 3
+                prefix = first_line[:cutoff]
+                if ' ' in prefix:
+                    last_space = prefix.rfind(' ')
+                    trimmed_content = prefix[:last_space] + '...'
+                else:
+                    trimmed_content = prefix + '...'
+            else:
+                trimmed_content = first_line
+        # Replace escaped hashes
+        trimmed_content = trimmed_content.replace('\\#', '#')
+        return trimmed_content
+
 def get_display_text(block: Block, blocks: Dict[int, Block], public_registry: dict = None) -> str:
     """
     Returns the display text for a block or page, redacting if private.
     """
     is_public = public_registry.get(block.id, False) if public_registry else False
     if is_public:
-        if block.is_page():
-            return block.original_name or block.name or ''
-        else:
-            content = (block.content or '').replace('"', '\"')
-            first_line = content.split('\n', 1)[0]
-            return first_line if first_line else '[block]'
+        return truncated_title(block)
     else:
         return REDACTED_TEXT
 
@@ -208,32 +233,34 @@ def update_asset_links(content: str) -> str:
     content = re.sub(r'!\[(.*?)\]\(assets/([^\)]+)\)', asset_repl, content)
     return content
 
+from .link_finder import LinkFinder
+
 def update_links(content: str, link_paths: dict, blocks: dict, public_registry=None) -> str:
-    # Replace [[Page Name]] and ((block-uuid)) with Hugo paths and correct redacted names
-    def page_link_repl(m):
-        name = m.group(1)
-        for b in blocks.values():
-            if b.name == name or b.original_name == name:
-                path = link_paths.get(b.id)
-                if path:
-                    link_text = get_display_text(b, blocks, public_registry)
-                    if link_text == REDACTED_TEXT:
-                        return f'[{REDACTED_TEXT}](-)'
-                    return f'[{link_text}]({path})'
-        return m.group(0)
-    def block_link_repl(m):
-        uuid = m.group(1)
-        for b in blocks.values():
-            if b.uuid == uuid:
-                path = link_paths.get(b.id)
-                if path:
-                    link_text = get_display_text(b, blocks, public_registry)
-                    if link_text == REDACTED_TEXT:
-                        return f'[{REDACTED_TEXT}](-)'
-                    return f'[{link_text}]({path})'
-        return m.group(0)
-    content = re.sub(r'\[\[([^\]]+)\]\]', page_link_repl, content)
-    content = re.sub(r'\(\(([^\)]+)\)\)', block_link_repl, content)
-    return content
+    """
+    Replace all Logseq links (including aliased links) in content with Hugo-friendly links using LinkFinder logic.
+    Mirrors the Swift logic for robust alias and link handling.
+    """
+    updated_content = content
+    # Iterate over all blocks to handle both page and block links
+    for b in blocks.values():
+        path = link_paths.get(b.id)
+        if not path:
+            continue
+        # Determine if this block is a page
+        is_page = False
+        if hasattr(b, 'is_page'):
+            is_page = b.is_page()
+        # Use display text (truncated, redacted if needed)
+        link_text = get_display_text(b, blocks, public_registry)
+        # For pages
+        if is_page:
+            for link_finder in LinkFinder.page_link_checks(b.name or b.original_name or '', path):
+                updated_content = link_finder.make_content_hugo_friendly(updated_content, no_links=False)
+        # For blocks
+        else:
+            block_content = getattr(b, 'content', '') or ''
+            for link_finder in LinkFinder.block_link_checks(getattr(b, 'uuid', ''), block_content, path):
+                updated_content = link_finder.make_content_hugo_friendly(updated_content, no_links=False)
+    return updated_content
 
 

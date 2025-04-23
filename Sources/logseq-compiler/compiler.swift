@@ -462,7 +462,7 @@ extension Block {
 
 extension String {
     func escapedQuotes() -> String {
-        return replacingOccurrences(of: #"""#, with: #"\""#)
+        return replacingOccurrences(of: #"\""#, with: #"\""#)
     }
     
     func quoted() -> String {
